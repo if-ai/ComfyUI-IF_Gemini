@@ -21,7 +21,7 @@ git clone https://github.com/if-ai/ComfyUI-IF_Gemini
 
 2. Install the required Python packages:
 ```bash
-pip install google-generativeai pillow
+pip install google-generativeai google-genai pillow
 ```
 
 3. Set up your Gemini API key:
