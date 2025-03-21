@@ -2,10 +2,11 @@ import sys
 import os
 
 # Add site-packages directory to Python's sys.path
+'''
 site_packages_path = os.path.join(sys.prefix, 'Lib', 'site-packages')
 if site_packages_path not in sys.path:
     sys.path.insert(0, site_packages_path)
-
+'''
 import torch
 import numpy as np
 from PIL import Image
