@@ -61,7 +61,7 @@ class GeminiNode:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "prompt": ("STRING", {"multiline": True, "default": "Describe this image in detail"}),
+                "prompt": ("STRING", {"multiline": True, "default": "Create a vivid word-picture representation of this image include elements that characterize the subject, costume, prop elemts, the action, the background, layout and composition elements present on the scene, be sure to mention the style and mood of the scene. Like it would a film director or director of photography"}),
                 "operation_mode": (
                     ["analysis", "generate_text", "generate_images"],
                     {"default": "generate_images"},
@@ -82,7 +82,7 @@ class GeminiNode:
                 "video": ("IMAGE",),
                 "audio": ("AUDIO",),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
-                "batch_count": ("INT", {"default": 1, "min": 1, "max": 8}),
+                "batch_count": ("INT", {"default": 4, "min": 1, "max": 8}),
                 "aspect_ratio": (
                     ["none", "1:1", "16:9", "9:16", "4:3", "3:4", "5:4", "4:5"],
                     {"default": "none"},
