@@ -94,7 +94,7 @@ class GeminiNode:
                 "structured_output": ("BOOLEAN", {"default": False}),
                 "max_images": ("INT", {"default": 6, "min": 1, "max": 16}),
                 "max_output_tokens": ("INT", {"default": 8192, "min": 1, "max": 32768}),
-                "random": ("BOOLEAN", {"default": False}),
+                "use_random_seed": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -120,7 +120,7 @@ class GeminiNode:
         temperature=0.4,
         structured_output=False,
         aspect_ratio="none",
-        random=False,
+        use_random_seed=False,
         model_version="gemini-2.0-flash-exp",
     ):
         """Generate content using Gemini model with various input types."""
@@ -168,8 +168,8 @@ class GeminiNode:
         if clear_history:
             self.chat_history.clear()
 
-        # Use random seed if seed is 0 or random is True
-        if seed == 0 or random:
+        # Use random seed if seed is 0 or use_random_seed is True
+        if seed == 0 or use_random_seed:
             seed = random.randint(1, 2**31 - 1)
             logger.info(f"Using random seed: {seed}")
         else:
@@ -191,7 +191,7 @@ class GeminiNode:
                 seed=seed,
                 max_images=max_images,
                 aspect_ratio=aspect_ratio,
-                random=random,
+                use_random_seed=use_random_seed,
             )
 
         # Initialize the API client with the API key instead of using configure
@@ -310,7 +310,7 @@ class GeminiNode:
         seed=0,
         max_images=6,
         aspect_ratio="none",
-        random=False,
+        use_random_seed=False,
     ):
         """Generate images using Gemini models with image generation capabilities"""
         try:
@@ -339,8 +339,8 @@ class GeminiNode:
             # Create Gemini client
             client = genai.Client(api_key=api_key)
 
-            # Generate a random seed if seed is 0 or random is True
-            if seed == 0 or random:
+            # Generate a random seed if seed is 0 or use_random_seed is True
+            if seed == 0 or use_random_seed:
                 seed = random.randint(1, 2**31 - 1)
                 logger.info(f"Using random seed for image generation: {seed}")
             else:
