@@ -35,12 +35,17 @@ class GeminiNode:
         self.chat_history = ChatHistory()
 
         # Try to load API key from environment with better logging
-        self.api_key = get_api_key("GEMINI_API_KEY", "Gemini")
-        
+        # First check system environment variable directly
+        self.api_key = os.environ.get("GEMINI_API_KEY", "")
         if self.api_key:
-            logger.info("Successfully loaded Gemini API key from environment")
+            logger.info("Successfully loaded Gemini API key from system environment")
         else:
-            logger.warning("No Gemini API key found in environment variables. You'll need to provide it in the node.")
+            # Fall back to checking .env files
+            self.api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+            if self.api_key:
+                logger.info("Successfully loaded Gemini API key from .env file")
+            else:
+                logger.warning("No Gemini API key found in any location. You'll need to provide it in the node.")
         
         # Check for Google Generative AI SDK
         self.genai_available = self._check_genai_availability()
@@ -146,17 +151,22 @@ class GeminiNode:
         if external_api_key and external_api_key.strip():
             api_key = external_api_key.strip()
             logger.info("Using API key provided in the node")
-        elif self.api_key:
-            api_key = self.api_key
-            logger.info("Using API key from environment variables")
         else:
-            # Try to load API key again in case it was set after initialization
-            api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+            # Directly check system environment variable first
+            api_key = os.environ.get("GEMINI_API_KEY", "")
             if api_key:
-                self.api_key = api_key
-                logger.info("Successfully loaded Gemini API key from environment (second attempt)")
+                logger.info("Using API key from system environment variable")
+            elif self.api_key:
+                api_key = self.api_key
+                logger.info("Using API key from previously loaded environment")
             else:
-                logger.error("No API key available from any source")
+                # Last attempt to load API key from .env file
+                api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+                if api_key:
+                    self.api_key = api_key
+                    logger.info("Successfully loaded Gemini API key from .env file")
+                else:
+                    logger.error("No API key available from any source")
 
         if not api_key:
             return (
@@ -325,10 +335,21 @@ class GeminiNode:
 
             # Get API key - use the same logic as in generate_content
             api_key = None
-            if hasattr(self, 'current_api_key') and self.current_api_key:
-                api_key = self.current_api_key
+            # Directly check system environment variable first
+            api_key = os.environ.get("GEMINI_API_KEY", "")
+            if api_key:
+                logger.info("Using API key from system environment variable for image generation")
             elif self.api_key:
                 api_key = self.api_key
+                logger.info("Using API key from previously loaded environment for image generation")
+            else:
+                # Last attempt to load API key from .env file
+                api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+                if api_key:
+                    self.api_key = api_key
+                    logger.info("Successfully loaded Gemini API key from .env file for image generation")
+                else:
+                    logger.error("No API key available from any source for image generation")
             
             if not api_key:
                 return (
