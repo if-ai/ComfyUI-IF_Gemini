@@ -33,9 +33,14 @@ class GeminiNode:
         self.api_key = ""
         self.chat_history = ChatHistory()
 
-        # Try to load API key from environment
+        # Try to load API key from environment with better logging
         self.api_key = get_api_key("GEMINI_API_KEY", "Gemini")
-
+        
+        if self.api_key:
+            logger.info("Successfully loaded Gemini API key from environment")
+        else:
+            logger.warning("No Gemini API key found in environment variables. You'll need to provide it in the node.")
+        
         # Check for Google Generative AI SDK
         self.genai_available = self._check_genai_availability()
 
@@ -131,17 +136,28 @@ class GeminiNode:
         try:
             from google import genai
             from google.genai import types
-            print(f"Google Generative AI SDK path: {genai.__file__}")
+            logger.info(f"Google Generative AI SDK path: {genai.__file__}")
         except ImportError:
             return ("ERROR: Failed to import Google Generative AI SDK", create_placeholder_image())
 
         # Use external API key if provided, otherwise use environment
-        if external_api_key.strip():
-            self.api_key = external_api_key
-        elif not self.api_key:
-            self.api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+        api_key = None
+        if external_api_key and external_api_key.strip():
+            api_key = external_api_key.strip()
+            logger.info("Using API key provided in the node")
+        elif self.api_key:
+            api_key = self.api_key
+            logger.info("Using API key from environment variables")
+        else:
+            # Try to load API key again in case it was set after initialization
+            api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+            if api_key:
+                self.api_key = api_key
+                logger.info("Successfully loaded Gemini API key from environment (second attempt)")
+            else:
+                logger.error("No API key available from any source")
 
-        if not self.api_key:
+        if not api_key:
             return (
                 "ERROR: No API key provided. Please set GEMINI_API_KEY in your environment or"
                 " provide it in the external_api_key field.",
@@ -178,7 +194,7 @@ class GeminiNode:
             )
 
         # Initialize the API client with the API key instead of using configure
-        client = genai.Client(api_key=self.api_key)
+        client = genai.Client(api_key=api_key)
 
         # Configure safety settings and generation parameters
         safety_settings = [
@@ -306,8 +322,21 @@ class GeminiNode:
                 model_version = "gemini-2.0-flash-exp-image-generation"
                 logger.info(f"Changed to image generation model: {model_version}")
 
+            # Get API key - use the same logic as in generate_content
+            api_key = None
+            if hasattr(self, 'current_api_key') and self.current_api_key:
+                api_key = self.current_api_key
+            elif self.api_key:
+                api_key = self.api_key
+            
+            if not api_key:
+                return (
+                    "ERROR: No API key available for image generation. Please set GEMINI_API_KEY in your environment or provide it in the external_api_key field.",
+                    create_placeholder_image(),
+                )
+
             # Create Gemini client
-            client = genai.Client(api_key=self.api_key)
+            client = genai.Client(api_key=api_key)
 
             # Generate a random seed if seed is 0 or random is True
             if seed == 0 or random:

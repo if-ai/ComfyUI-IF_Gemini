@@ -1,0 +1,31 @@
+# Once you enter your API KEY here, rename the file to .env
+# Never share this file with anyone 
+# If possible set your global environment variable for the system 
+# instead of using this file since this is 
+# MORE SECURE THAN SITTING ON CUSTOM NODE DIRECTORY
+# update the keys regularly and delete the old ones.
+
+# HOW TO SET SYSTEM-WIDE ENVIRONMENT VARIABLES:
+# ============================================
+# Windows:
+#   1. Search for "Environment Variables" in Start menu
+#   2. Click "Edit the system environment variables"
+#   3. Click "Environment Variables" button
+#   4. Under "System variables" click "New"
+#   5. Enter variable name (e.g., GEMINI_API_KEY) and value
+#
+# macOS/Linux (permanent):
+#   1. Edit your shell profile file (~/.bash_profile, ~/.zshrc, etc.)
+#   2. Add: export GEMINI_API_KEY=your_api_key_here
+#   3. Save and restart terminal or run: source ~/.bash_profile
+#
+# Linux (system-wide):
+#   1. Edit /etc/environment
+#   2. Add: GEMINI_API_KEY=your_api_key_here
+#   3. Reboot system or run: source /etc/environment
+
+# Gemini API Key - Get from https://ai.google.dev/
+GEMINI_API_KEY=your_api_key_here
+
+# Other API keys can be added here
+
