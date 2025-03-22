@@ -1,5 +1,9 @@
 import sys
 import os
+import warnings
+
+# Suppress warnings related to IMAGE_SAFETY finish reason which is normal
+warnings.filterwarnings("ignore", message="IMAGE_SAFETY is not a valid FinishReason")
 
 # Add site-packages directory to Python's sys.path
 '''
@@ -14,6 +18,9 @@ from io import BytesIO
 import logging
 import random
 import base64
+import time
+import uuid
+import hashlib
 
 from .env_utils import get_api_key
 from .utils import ChatHistory
@@ -29,23 +36,115 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def generate_consistent_seed(input_seed=0, use_random=False):
+    """
+    Generate a consistent seed for the Gemini API.
+    
+    This function uses a more reliable approach to seed generation:
+    - If input_seed is non-zero and use_random is False, use the input_seed
+    - Otherwise, generate a high-quality random seed based on uuid and time
+    
+    Returns:
+        int: A seed value within the INT32 range (0 to 2^31-1)
+    """
+    max_int32 = 2**31 - 1
+    
+    if input_seed != 0 and not use_random:
+        # Use the provided seed, but ensure it's within INT32 range
+        adjusted_seed = input_seed % max_int32
+        logger.info(f"Using provided seed (adjusted to INT32 range): {adjusted_seed}")
+        return adjusted_seed
+    
+    # For random seeds, use a more robust method that won't collide with ComfyUI's seed generation
+    # Create a unique identifier by combining:
+    # 1. A UUID (universally unique)
+    # 2. Current high-precision time
+    # 3. ComfyUI's random seed (if we wanted to use it)
+    
+    unique_id = str(uuid.uuid4())
+    current_time = str(time.time_ns())  # Nanosecond precision
+    random_component = str(random.randint(0, max_int32))
+    
+    # Combine and hash all components to get a deterministic but high-quality random value
+    combined = unique_id + current_time + random_component
+    hash_hex = hashlib.md5(combined.encode()).hexdigest()
+    
+    # Convert first 8 characters of hash to integer and ensure within INT32 range
+    hash_int = int(hash_hex[:8], 16) % max_int32
+    
+    logger.info(f"Generated random seed: {hash_int}")
+    return hash_int
+
+
 class GeminiNode:
     def __init__(self):
         self.api_key = ""
         self.chat_history = ChatHistory()
-
-        # Try to load API key from environment with better logging
-        # First check system environment variable directly
-        self.api_key = os.environ.get("GEMINI_API_KEY", "")
-        if self.api_key:
+        self.last_external_api_key = ""  # Track the last external API key
+        self.api_key_source = None  # Track where the API key came from
+        
+        # First check system environment variables
+        system_api_key = os.environ.get("GEMINI_API_KEY", "")
+        if system_api_key:
+            self.api_key = system_api_key
+            self.api_key_source = "system environment variables"
             logger.info("Successfully loaded Gemini API key from system environment")
         else:
-            # Fall back to checking .env files
-            self.api_key = get_api_key("GEMINI_API_KEY", "Gemini")
-            if self.api_key:
-                logger.info("Successfully loaded Gemini API key from .env file")
+            # Next, try to directly check shell configuration files
+            home_dir = os.path.expanduser("~")
+            shell_config_files = [
+                os.path.join(home_dir, ".zshrc"),
+                os.path.join(home_dir, ".bashrc"),
+                os.path.join(home_dir, ".bash_profile")
+            ]
+            
+            import re
+            shell_key = None
+            shell_source = None
+            
+            for config_file in shell_config_files:
+                if os.path.exists(config_file):
+                    logger.debug(f"Checking {config_file} for API key...")
+                    try:
+                        with open(config_file, 'r') as f:
+                            content = f.read()
+                            # Look for export VAR=value or VAR=value patterns
+                            patterns = [
+                                r'export\s+GEMINI_API_KEY=[\'\"]?([^\s\'\"]+)[\'\"]?',
+                                r'GEMINI_API_KEY=[\'\"]?([^\s\'\"]+)[\'\"]?'
+                            ]
+                            for pattern in patterns:
+                                matches = re.findall(pattern, content)
+                                if matches:
+                                    shell_key = matches[0]
+                                    shell_source = os.path.basename(config_file)
+                                    logger.info(f"Found Gemini API key in {shell_source}")
+                                    # Also set in environment for future use
+                                    os.environ["GEMINI_API_KEY"] = shell_key
+                                    break
+                    except Exception as e:
+                        logger.error(f"Error reading {config_file}: {str(e)}")
+                if shell_key:
+                    break
+                    
+            if shell_key:
+                self.api_key = shell_key
+                self.api_key_source = shell_source
+                logger.info(f"Successfully loaded Gemini API key from {shell_source}")
             else:
-                logger.warning("No Gemini API key found in any location. You'll need to provide it in the node.")
+                # Last resort: check .env files
+                env_api_key = get_api_key("GEMINI_API_KEY", "Gemini")
+                if env_api_key:
+                    self.api_key = env_api_key
+                    self.api_key_source = ".env file"
+                    logger.info("Successfully loaded Gemini API key from .env file")
+                else:
+                    logger.warning("No Gemini API key found in any location (system env, shell configs, .env). You'll need to provide it in the node.")
+        
+        # Log key information (masked for security)
+        if self.api_key:
+            masked_key = self.api_key[:4] + "..." + self.api_key[-4:] if len(self.api_key) > 8 else "****"
+            logger.info(f"Using Gemini API key ({masked_key}) from {self.api_key_source}")
         
         # Check for Google Generative AI SDK
         self.genai_available = self._check_genai_availability()
@@ -72,7 +171,7 @@ class GeminiNode:
                     ["analysis", "generate_text", "generate_images"],
                     {"default": "generate_images"},
                 ),
-                "model_version": (
+                "model_name": (
                     [
                         "gemini-2.0-flash-exp",
                         "gemini-2.0-pro",
@@ -126,15 +225,14 @@ class GeminiNode:
         structured_output=False,
         aspect_ratio="none",
         use_random_seed=False,
-        model_version="gemini-2.0-flash-exp",
+        model_name="gemini-2.0-flash-exp",
     ):
         """Generate content using Gemini model with various input types."""
 
         # Check if Google Generative AI SDK is available
         if not self.genai_available:
             return (
-                "ERROR: Google Generative AI SDK not installed. Install with: pip install"
-                " google-generativeai",
+                "ERROR: Google Generative AI SDK not installed. Install with: pip install google-generativeai",
                 create_placeholder_image(),
             )
 
@@ -146,27 +244,32 @@ class GeminiNode:
         except ImportError:
             return ("ERROR: Failed to import Google Generative AI SDK", create_placeholder_image())
 
-        # Use external API key if provided, otherwise use environment
+        # API key priority: 1. external_api_key, 2. system env, 3. previously loaded key
+        # Track if we need to regenerate the client
         api_key = None
-        if external_api_key and external_api_key.strip():
-            api_key = external_api_key.strip()
+        api_key_source = None
+        
+        # Clean and validate external API key
+        cleaned_external_key = external_api_key.strip() if external_api_key else ""
+        
+        if cleaned_external_key:
+            api_key = cleaned_external_key
+            api_key_source = "external"
             logger.info("Using API key provided in the node")
-        else:
-            # Directly check system environment variable first
-            api_key = os.environ.get("GEMINI_API_KEY", "")
-            if api_key:
-                logger.info("Using API key from system environment variable")
-            elif self.api_key:
-                api_key = self.api_key
-                logger.info("Using API key from previously loaded environment")
-            else:
-                # Last attempt to load API key from .env file
-                api_key = get_api_key("GEMINI_API_KEY", "Gemini")
-                if api_key:
-                    self.api_key = api_key
-                    logger.info("Successfully loaded Gemini API key from .env file")
-                else:
-                    logger.error("No API key available from any source")
+            # Save it for future reference
+            self.last_external_api_key = cleaned_external_key
+        elif os.environ.get("GEMINI_API_KEY"):
+            api_key = os.environ.get("GEMINI_API_KEY")
+            api_key_source = "system"
+            logger.info("Using API key from system environment variable")
+        elif self.api_key:
+            api_key = self.api_key
+            api_key_source = "loaded" 
+            logger.info("Using API key from previously loaded environment")
+        elif self.last_external_api_key:  # Fallback to last provided external key
+            api_key = self.last_external_api_key
+            api_key_source = "cached"
+            logger.info("Using previously provided external API key")
 
         if not api_key:
             return (
@@ -178,34 +281,47 @@ class GeminiNode:
         if clear_history:
             self.chat_history.clear()
 
-        # Use random seed if seed is 0 or use_random_seed is True
-        if seed == 0 or use_random_seed:
-            seed = random.randint(1, 2**31 - 1)
-            logger.info(f"Using random seed: {seed}")
-        else:
-            # Ensure seed is within INT32 range (maximum value 2147483647)
-            max_int32 = 2**31 - 1
-            seed = seed % max_int32
-            logger.info(f"Adjusted seed to INT32 range: {seed}")
+        # Generate a consistent seed for this operation
+        operation_seed = generate_consistent_seed(seed, use_random_seed)
 
         # Handle image generation mode
         if operation_mode == "generate_images":
             return self.generate_images(
                 prompt=prompt,
-                model_version=model_version
-                if "image-generation" in model_version
+                model_name=model_name
+                if "image-generation" in model_name
                 else "gemini-2.0-flash-exp-image-generation",
                 images=images,
                 batch_count=batch_count,
                 temperature=temperature,
-                seed=seed,
+                seed=operation_seed,
                 max_images=max_images,
                 aspect_ratio=aspect_ratio,
                 use_random_seed=use_random_seed,
+                external_api_key=cleaned_external_key,
+                api_key_source=api_key_source,
             )
 
-        # Initialize the API client with the API key instead of using configure
-        client = genai.Client(api_key=api_key)
+        # Initialize the API client with the API key
+        try:
+            client = genai.Client(api_key=api_key)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error initializing Gemini client: {error_msg}", exc_info=True)
+            
+            # Provide more helpful messages for common errors
+            if "invalid api key" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                return (
+                    "ERROR: Invalid Gemini API key. Please check your API key and try again.",
+                    create_placeholder_image(),
+                )
+            elif "quota" in error_msg.lower() or "exceeded" in error_msg.lower():
+                return (
+                    "ERROR: API quota exceeded. You've reached your usage limit for the Gemini API.",
+                    create_placeholder_image(),
+                )
+                
+            return (f"Error initializing Gemini client: {error_msg}", create_placeholder_image())
 
         # Configure safety settings and generation parameters
         safety_settings = [
@@ -218,8 +334,8 @@ class GeminiNode:
         generation_config = types.GenerateContentConfig(
             max_output_tokens=max_output_tokens, 
             temperature=temperature, 
-            seed=seed,  # Add seed
-            safety_settings=safety_settings  # Include safety settings in config
+            seed=operation_seed,  # Use our consistent seed
+            safety_settings=safety_settings
         )
 
         try:
@@ -229,7 +345,7 @@ class GeminiNode:
 
                 # Create chat session
                 chat_session = client.chats.create(
-                    model=model_version,
+                    model=model_name,
                     history=history
                 )
 
@@ -296,7 +412,7 @@ class GeminiNode:
 
                 # Generate content using the model
                 response = client.models.generate_content(
-                    model=model_version,
+                    model=model_name,
                     contents=contents,
                     config=generation_config,
                 )
@@ -313,7 +429,7 @@ class GeminiNode:
     def generate_images(
         self,
         prompt,
-        model_version,
+        model_name,
         images=None,
         batch_count=1,
         temperature=0.4,
@@ -321,6 +437,8 @@ class GeminiNode:
         max_images=6,
         aspect_ratio="none",
         use_random_seed=False,
+        external_api_key="",
+        api_key_source=None,
     ):
         """Generate images using Gemini models with image generation capabilities"""
         try:
@@ -329,27 +447,37 @@ class GeminiNode:
             from google.genai import types
 
             # Ensure we're using an image generation capable model
-            if "image-generation" not in model_version:
-                model_version = "gemini-2.0-flash-exp-image-generation"
-                logger.info(f"Changed to image generation model: {model_version}")
+            if "image-generation" not in model_name:
+                model_name = "gemini-2.0-flash-exp-image-generation"
+                logger.info(f"Changed to image generation model: {model_name}")
 
-            # Get API key - use the same logic as in generate_content
+            # Use the API key based on the source specified
             api_key = None
-            # Directly check system environment variable first
-            api_key = os.environ.get("GEMINI_API_KEY", "")
-            if api_key:
+            
+            if api_key_source == "external" and external_api_key:
+                api_key = external_api_key
+                logger.info("Using external API key provided in the node for image generation")
+            elif api_key_source == "system" and os.environ.get("GEMINI_API_KEY"):
+                api_key = os.environ.get("GEMINI_API_KEY")
                 logger.info("Using API key from system environment variable for image generation")
-            elif self.api_key:
+            elif api_key_source == "loaded" and self.api_key:
                 api_key = self.api_key
                 logger.info("Using API key from previously loaded environment for image generation")
-            else:
-                # Last attempt to load API key from .env file
-                api_key = get_api_key("GEMINI_API_KEY", "Gemini")
-                if api_key:
-                    self.api_key = api_key
-                    logger.info("Successfully loaded Gemini API key from .env file for image generation")
-                else:
-                    logger.error("No API key available from any source for image generation")
+            elif api_key_source == "cached" and self.last_external_api_key:
+                api_key = self.last_external_api_key
+                logger.info("Using cached external API key for image generation")
+            elif external_api_key:  # Fallback to direct external key if source not set
+                api_key = external_api_key
+                logger.info("Using direct external API key for image generation")
+            elif os.environ.get("GEMINI_API_KEY"):  # Fallback to system env
+                api_key = os.environ.get("GEMINI_API_KEY")
+                logger.info("Using system environment API key for image generation")
+            elif self.api_key:  # Fallback to instance variable
+                api_key = self.api_key
+                logger.info("Using instance API key for image generation")
+            elif self.last_external_api_key:  # Last resort cached key
+                api_key = self.last_external_api_key
+                logger.info("Using last resort cached API key for image generation")
             
             if not api_key:
                 return (
@@ -358,17 +486,28 @@ class GeminiNode:
                 )
 
             # Create Gemini client
-            client = genai.Client(api_key=api_key)
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Error initializing Gemini client for image generation: {error_msg}", exc_info=True)
+                
+                # Provide more helpful messages for common errors
+                if "invalid api key" in error_msg.lower() or "unauthorized" in error_msg.lower():
+                    return (
+                        "ERROR: Invalid Gemini API key. Please check your API key and try again.",
+                        create_placeholder_image(),
+                    )
+                elif "quota" in error_msg.lower() or "exceeded" in error_msg.lower():
+                    return (
+                        "ERROR: API quota exceeded. You've reached your usage limit for the Gemini API.",
+                        create_placeholder_image(),
+                    )
+                
+                return (f"Error initializing Gemini client: {error_msg}", create_placeholder_image())
 
-            # Generate a random seed if seed is 0 or use_random_seed is True
-            if seed == 0 or use_random_seed:
-                seed = random.randint(1, 2**31 - 1)
-                logger.info(f"Using random seed for image generation: {seed}")
-            else:
-                # Ensure seed is within INT32 range (maximum value 2147483647)
-                max_int32 = 2**31 - 1
-                seed = seed % max_int32
-                logger.info(f"Adjusted seed to INT32 range: {seed}")
+            # Use the same seed as passed from generate_content to ensure consistency
+            logger.info(f"Using seed for image generation: {seed}")
 
             # Define aspect ratio dimensions for Imagen 3
             aspect_ratio_dimensions = {
@@ -444,9 +583,11 @@ class GeminiNode:
             # Generate images - handle batch generation with unique seeds
             for i in range(batch_count):
                 try:
-                    # Update seed for each batch (keep within INT32 range)
-                    max_int32 = 2**31 - 1
-                    current_seed = (seed + i) % max_int32
+                    # Generate a unique seed for each batch based on the operation seed
+                    # This ensures consistent but different seeds across batches
+                    current_seed = (seed + i) % (2**31 - 1)
+                    
+                    # Create batch-specific configuration with the unique seed
                     batch_config = types.GenerateContentConfig(
                         temperature=temperature,
                         response_modalities=["Text", "Image"],
@@ -464,15 +605,22 @@ class GeminiNode:
 
                     # Generate content
                     response = client.models.generate_content(
-                        model=model_version, contents=content, config=batch_config
+                        model=model_name, contents=content, config=batch_config
                     )
 
                     # Process response to extract generated images and text
                     batch_images = []
                     response_text = ""
+                    finish_reason = None
 
+                    # Check for finish reason which might explain why no images were generated
                     if hasattr(response, "candidates") and response.candidates:
                         for candidate in response.candidates:
+                            # Check finish reason if available
+                            if hasattr(candidate, "finish_reason"):
+                                finish_reason = candidate.finish_reason
+                                logger.info(f"Finish reason: {finish_reason}")
+                            
                             if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
                                 for part in candidate.content.parts:
                                     # Extract text
@@ -495,7 +643,17 @@ class GeminiNode:
                             f"Batch {i+1} (seed {current_seed}): Generated {len(batch_images)} images\n"
                         )
                     else:
-                        status_text += f"Batch {i+1} (seed {current_seed}): No images found in response\n"
+                        # Include finish reason in status if available
+                        finish_info = f" (Reason: {finish_reason})" if finish_reason else ""
+                        status_text += f"Batch {i+1} (seed {current_seed}): No images found in response{finish_info}\n"
+                        
+                        # Add more specific guidance for IMAGE_SAFETY or similar issues
+                        if finish_reason and "SAFETY" in str(finish_reason).upper():
+                            status_text += "The request was blocked for safety reasons. Try modifying your prompt to avoid content that might trigger safety filters.\n"
+                        
+                        # Include any text response from the model that might explain the issue
+                        if response_text.strip():
+                            status_text += f"Model message: {response_text.strip()}\n"
 
                 except Exception as batch_error:
                     status_text += f"Batch {i+1} error: {str(batch_error)}\n"
@@ -524,7 +682,7 @@ class GeminiNode:
 
                 result_text = (
                     f"Successfully generated {len(all_generated_images)} images using"
-                    f" {model_version}.\n"
+                    f" {model_name}.\n"
                 )
                 result_text += f"Prompt: {prompt}\n"
                 result_text += f"Starting seed: {seed}\n"
@@ -535,7 +693,7 @@ class GeminiNode:
 
             # No images were generated successfully
             return (
-                f"No images were generated with {model_version}. Details:\n{status_text}",
+                f"No images were generated with {model_name}. Details:\n{status_text}",
                 create_placeholder_image(),
             )
 
@@ -543,3 +701,71 @@ class GeminiNode:
             error_msg = f"Error in image generation: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return error_msg, create_placeholder_image()
+
+def get_available_models(api_key):
+    """Get available Gemini models for a given API key"""
+    try:
+        from google import genai
+        
+        # Initialize client with the provided API key
+        client = genai.Client(api_key=api_key)
+        
+        # List available models
+        models_response = client.models.list()
+        
+        # Filter for Gemini models only
+        gemini_models = []
+        for model in models_response:
+            if "gemini" in model.name.lower():
+                # Extract just the model name from the full path
+                model_name = model.name.split('/')[-1]
+                gemini_models.append(model_name)
+        
+        # Ensure we always have the default models available
+        default_models = [
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-pro",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp-image-generation"
+        ]
+        
+        for model in default_models:
+            if model not in gemini_models:
+                gemini_models.append(model)
+        
+        return gemini_models
+        
+    except Exception as e:
+        logger.error(f"Error retrieving models: {str(e)}")
+        # Return default models on error
+        return [
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-pro",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp-image-generation"
+        ]
+
+def check_gemini_api_key(api_key):
+    """Check if a Gemini API key is valid by attempting to list models"""
+    try:
+        from google import genai
+        
+        # Initialize client with the provided API key
+        client = genai.Client(api_key=api_key)
+        
+        # Try to list models as a simple API test
+        models = client.models.list()
+        
+        # If we get here, the API key is valid
+        return True, "API key is valid. Successfully connected to Gemini API."
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"API key validation error: {error_msg}")
+        
+        # Provide more helpful error messages
+        if "invalid api key" in error_msg.lower() or "unauthorized" in error_msg.lower():
+            return False, "Invalid API key. Please check your API key and try again."
+        elif "quota" in error_msg.lower() or "exceeded" in error_msg.lower():
+            return False, "API quota exceeded. You've reached your usage limit for the Gemini API."
+        else:
+            return False, f"Error validating API key: {error_msg}"
