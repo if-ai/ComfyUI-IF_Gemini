@@ -1,13 +1,14 @@
 [project]
 name = "comfyui-if_gemini"
 description = "Enjoy the latest GEMINI V2 API for ComfyUI generate images, transcribe audio, sumarize videos. Making a separate implemetation of my old IF_AI tools for easy installation"
-version = "0.1.0"
+version = "0.1.1"
 license = { file = "MIT License" }
 dependencies = [
     # Core dependencies
     "torch>=2.0.0",
     "pillow>=10.0.0",
     "numpy>=1.24.0",
+    "python-dotenv",
     
     # Google Gemini API
     "google-generativeai",
