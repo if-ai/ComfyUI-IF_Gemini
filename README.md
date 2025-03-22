@@ -21,14 +21,10 @@ git clone https://github.com/if-ai/ComfyUI-IF_Gemini
 
 2. Install the required Python packages:
 ```bash
-pip install google-generativeai google-genai pillow
+cd ComfyUI-IF_Gemini
+pip install -r requirements.txt
 ```
 
-3. Set up your Gemini API key:
-   - Create a Google AI Studio account at [ai.google.dev](https://ai.google.dev/)
-   - Get your API key from the Google AI Studio dashboard
-   - Set it as an environment variable: `GEMINI_API_KEY=your_api_key_here`
-   - Or provide it directly in the node interface
 
 4. Restart ComfyUI to load the new node
 
@@ -36,35 +32,54 @@ pip install google-generativeai google-genai pillow
 
 The Gemini node appears in the "ImpactFrames💥🎞️/LLM" category in the ComfyUI node browser.
 
-### Basic Text Generation:
-1. Add the Gemini node to your workflow
-2. Set the operation mode to "generate_text"
-3. Enter your prompt
-4. Connect to a text display node to view the results
+3. Restart ComfyUI
 
-### Image Analysis:
-1. Connect an image source to the Gemini node's image input
-2. Set the operation mode to "analysis"
-3. Enter a prompt like "Describe this image in detail"
-4. Run the workflow to get a detailed description of your image
 
-### Image Generation:
-1. Set the operation mode to "generate_images"
-2. Enter a detailed prompt describing the image you want
-3. Optionally connect reference images
-4. Configure aspect ratio and other settings
-5. Connect to an image preview node to see results
+1. Add your Gemini API key using one of these methods:
+   - **Shell configuration file** (recommended for macOS/Linux):
+     ```bash
+     # In ~/.zshrc, ~/.bashrc, or ~/.bash_profile:
+     export GEMINI_API_KEY=your_api_key_here
+     ```
+     Then restart your terminal or run `source ~/.zshrc` (or relevant file)
+   
+   - **System environment variable**:
+     ```bash
+     export GEMINI_API_KEY=your_api_key
+     ```
+     
+   - **Directly in the node**:
+     Enter your API key in the "external_api_key" field
+     
+   - **In a `.env` file** in the custom node directory:
+     ```
+     GEMINI_API_KEY=your_api_key
+     ```
 
-## Configuration Options
+2. Add the "IF LLM Gemini AI" node to your workflow
 
-- **Model Version**: Choose from available Gemini models (flash, pro, etc.)
-- **Temperature**: Control randomness (0.0 to 1.0)
-- **Max Output Tokens**: Limit response length
-- **Seed**: Set for reproducible results
-- **Batch Count**: Generate multiple outputs
-- **Aspect Ratio**: Choose image dimensions
-- **Chat Mode**: Enable for conversational interactions
-- **Structured Output**: Request formatted responses
+3. Verify your API key using the "Verify API Key" button in the node
+
+4. Configure the node:
+   - For text generation, set "operation_mode" to "analysis" or "generate_text"
+   - For image generation, set "operation_mode" to "generate_images"
+   - Connect reference images (optional) for style-based generation
+
+5. Set additional parameters as needed:
+   - Prompt: Your text instructions
+   - Model version: Select appropriate Gemini model
+   - Temperature: Controls randomness (0.0-1.0)
+   - Seed: For reproducible results
+
+## Troubleshooting
+
+- If you encounter API key errors, use the "Verify API Key" button to check its validity
+- For image safety errors, try modifying your prompt to avoid content that may trigger safety filters
+- Ensure your Gemini API has appropriate quotas for your usage
+
+## License
+
+MIT
 
 ## Support
 If you find this tool useful, please consider supporting my work by:
