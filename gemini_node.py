@@ -23,13 +23,15 @@ import time
 import uuid
 import hashlib
 import json
+import re
 
 # Import PromptServer for real-time UI updates
 try:
     from server import PromptServer
+    HAS_PROMPTSERVER = True
 except ImportError:
-    # Fallback for environments where server might not be directly available
-    logging.warning("PromptServer could not be imported. Real-time UI updates will be disabled.")
+    logger.warning("PromptServer could not be imported. Real-time UI updates will be disabled.")
+    HAS_PROMPTSERVER = False
     PromptServer = None
 
 from .env_utils import get_api_key
@@ -48,6 +50,22 @@ from .response_utils import prepare_response
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Helper function for safely sending WebSocket messages
+def send_ws_message_safe(event_name, data, node_id=None):
+    """Safely send a WebSocket message with error handling."""
+    if not HAS_PROMPTSERVER or PromptServer is None:
+        return False
+    
+    try:
+        # Ensure node_id is in the data if provided
+        if node_id and isinstance(data, dict) and "node_id" not in data:
+            data["node_id"] = node_id
+            
+        PromptServer.instance.send_sync(event_name, data)
+        return True
+    except Exception as e:
+        logger.error(f"Error sending WebSocket message '{event_name}': {e}")
+        return False
 
 def generate_consistent_seed(input_seed=0, use_random=False):
     """
@@ -175,6 +193,51 @@ class GeminiNode:
             )
             return False
 
+    def _get_active_api_key(self, external_api_key=""):
+        """
+        Determine the active API key to use based on priority order:
+        1. External API key passed to the method (if valid)
+        2. System environment variable
+        3. Previously stored API key in the instance
+        
+        Args:
+            external_api_key (str): External API key provided in the node UI
+            
+        Returns:
+            tuple: (api_key, api_key_source) where:
+                api_key (str): The API key to use
+                api_key_source (str): Description of where the key came from
+        """
+        # Clean and validate external API key
+        cleaned_external_key = external_api_key.strip() if external_api_key else ""
+        
+        # Determine API key to use based on priority
+        if cleaned_external_key:
+            logger.info("Using API key provided in the node")
+            # Save it for future reference
+            self.last_external_api_key = cleaned_external_key
+            return cleaned_external_key, "external"
+        
+        # Next check system environment variables
+        system_key = os.environ.get("GEMINI_API_KEY", "")
+        if system_key:
+            logger.info("Using API key from system environment variable")
+            return system_key, "system"
+        
+        # Next try the API key already in the instance
+        if self.api_key:
+            logger.info(f"Using API key from {self.api_key_source}")
+            return self.api_key, self.api_key_source
+        
+        # Last resort: try previously provided external key
+        if self.last_external_api_key:
+            logger.info("Using previously provided external API key")
+            return self.last_external_api_key, "cached"
+        
+        # No API key found
+        logger.warning("No API key found")
+        return "", ""
+
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -269,39 +332,65 @@ class GeminiNode:
         except ImportError:
             return ("ERROR: Failed to import Google Generative AI SDK", create_placeholder_image())
 
-        # API key priority: 1. external_api_key, 2. system env, 3. previously loaded key
-        # Track if we need to regenerate the client
-        api_key = None
-        api_key_source = None
+        # Get API key using the helper method
+        api_key, api_key_source = self._get_active_api_key(external_api_key)
         
-        # Clean and validate external API key
-        cleaned_external_key = external_api_key.strip() if external_api_key else ""
-        
-        if cleaned_external_key:
-            api_key = cleaned_external_key
-            api_key_source = "external"
-            logger.info("Using API key provided in the node")
-            # Save it for future reference
-            self.last_external_api_key = cleaned_external_key
-        elif os.environ.get("GEMINI_API_KEY"):
-            api_key = os.environ.get("GEMINI_API_KEY")
-            api_key_source = "system"
-            logger.info("Using API key from system environment variable")
-        elif self.api_key:
-            api_key = self.api_key
-            api_key_source = "loaded" 
-            logger.info("Using API key from previously loaded environment")
-        elif self.last_external_api_key:  # Fallback to last provided external key
-            api_key = self.last_external_api_key
-            api_key_source = "cached"
-            logger.info("Using previously provided external API key")
-
         if not api_key:
             return (
                 "ERROR: No API key provided. Please set GEMINI_API_KEY in your environment or"
                 " provide it in the external_api_key field.",
                 create_placeholder_image(),
             )
+
+        # --- Robust Prompt Extraction ---
+        prompt_text = ""
+        actual_prompt_input = prompt # Use the main 'prompt' input first
+
+        # Check if the main prompt input is a dict with nested structure
+        if isinstance(actual_prompt_input, dict):
+            # If prompt is a dict, try to extract text from common patterns
+            if "text" in actual_prompt_input:
+                prompt_text = str(actual_prompt_input["text"])
+            elif "prompt" in actual_prompt_input:
+                prompt_text = str(actual_prompt_input["prompt"])
+            elif "inputs" in actual_prompt_input and isinstance(actual_prompt_input["inputs"], dict):
+                # Try to extract from a nested inputs structure
+                inputs = actual_prompt_input["inputs"]
+                if "prompt" in inputs:
+                    prompt_text = str(inputs["prompt"])
+                elif "text" in inputs:
+                    prompt_text = str(inputs["text"])
+                else:
+                    # If no standard keys found, convert the whole dict to string
+                    prompt_text = str(actual_prompt_input)
+            else:
+                # If no known structure, convert the whole dict to string
+                prompt_text = str(actual_prompt_input)
+            logger.info(f"Extracted prompt from dictionary: {prompt_text[:50]}...")
+        elif isinstance(actual_prompt_input, (list, tuple)):
+            # If prompt is a list or tuple, join elements
+            prompt_text = " ".join(str(item) for item in actual_prompt_input)
+            logger.info(f"Converted list/tuple prompt to string: {prompt_text[:50]}...")
+        else:
+            # Otherwise, ensure it's a string
+            prompt_text = str(actual_prompt_input)
+
+        # Check if prompt_text is empty or just whitespace, but we have prompt_ (workflow data)
+        if not prompt_text.strip() and prompt_ and isinstance(prompt_, dict):
+            try:
+                logger.debug("Extracted prompt is empty, trying workflow data (prompt_)")
+                # Try to find the node data in the workflow
+                for node_id, node_data in prompt_.items():
+                    if isinstance(node_data, dict) and node_data.get("class_type") == "GeminiNode":
+                        if "inputs" in node_data and "prompt" in node_data["inputs"]:
+                            prompt_text = str(node_data["inputs"]["prompt"])
+                            logger.info(f"Extracted prompt from workflow data: {prompt_text[:50]}...")
+                            break
+            except Exception as e:
+                logger.error(f"Error extracting prompt from workflow data: {e}")
+
+        logger.info(f"Using final prompt text: {prompt_text[:100]}...")
+        # --- End of Robust Prompt Extraction ---
 
         if clear_history:
             self.chat_history.clear()
@@ -312,7 +401,7 @@ class GeminiNode:
         # Handle different operation modes
         if operation_mode == "generate_images":
             return self.generate_images(
-                prompt=prompt,
+                prompt=prompt_text,
                 model_name=model_name
                 if "image-generation" in model_name
                 else "gemini-2.0-flash-exp-image-generation",
@@ -323,7 +412,7 @@ class GeminiNode:
                 max_images=max_images,
                 aspect_ratio=aspect_ratio,
                 use_random_seed=use_random_seed,
-                external_api_key=cleaned_external_key,
+                external_api_key=api_key,
                 api_key_source=api_key_source,
                 unique_id=unique_id,
                 extra_pnginfo=extra_pnginfo,
@@ -332,7 +421,7 @@ class GeminiNode:
         elif operation_mode == "generate_sequence":
             # Call new sequence generation method
             return self.generate_sequence(
-                prompt=prompt,
+                prompt=prompt_text,
                 model_name=model_name,
                 images=images,
                 video=video,
@@ -487,267 +576,278 @@ class GeminiNode:
         extra_pnginfo=None,
         prompt_=None,
     ):
-        """Generate images using Gemini models with image generation capabilities"""
+        """Generate images using Gemini models with image generation capabilities.
+           NOTE: Makes ONE API call. Batch_count > 1 doesn't multiply API calls here.
+           It might influence the prompt if we adapt it later, but currently ignored.
+           The API itself might return multiple images (up to its limit).
+        """
+        logger.info(f"Starting generate_images for node {unique_id}")
+
+        if not self.genai_available:
+            return ("ERROR: Google Generative AI SDK not installed.", create_placeholder_image())
+
+        # --- Force the Correct Model ---
+        # Use the specific model designed for this integrated generation
+        forced_model_name = "gemini-2.0-flash-exp-image-generation"
+        if model_name != forced_model_name:
+             logger.warning(f"Operation mode is generate_images, overriding model to {forced_model_name}")
+        model_name = forced_model_name # Override
+
         try:
-            # Import here to avoid ImportError during ComfyUI startup
             from google import genai
             from google.genai import types
+        except ImportError:
+            return ("ERROR: Failed to import Google Generative AI SDK", create_placeholder_image())
 
-            # Ensure we're using an image generation capable model
-            if "image-generation" not in model_name:
-                model_name = "gemini-2.0-flash-exp-image-generation"
-                logger.info(f"Changed to image generation model: {model_name}")
-
-            # Use the API key based on the source specified
-            api_key = None
-            
-            if api_key_source == "external" and external_api_key:
-                api_key = external_api_key
-                logger.info("Using external API key provided in the node for image generation")
-            elif api_key_source == "system" and os.environ.get("GEMINI_API_KEY"):
-                api_key = os.environ.get("GEMINI_API_KEY")
-                logger.info("Using API key from system environment variable for image generation")
-            elif api_key_source == "loaded" and self.api_key:
-                api_key = self.api_key
-                logger.info("Using API key from previously loaded environment for image generation")
-            elif api_key_source == "cached" and self.last_external_api_key:
-                api_key = self.last_external_api_key
-                logger.info("Using cached external API key for image generation")
-            elif external_api_key:  # Fallback to direct external key if source not set
-                api_key = external_api_key
-                logger.info("Using direct external API key for image generation")
-            elif os.environ.get("GEMINI_API_KEY"):  # Fallback to system env
-                api_key = os.environ.get("GEMINI_API_KEY")
-                logger.info("Using system environment API key for image generation")
-            elif self.api_key:  # Fallback to instance variable
-                api_key = self.api_key
-                logger.info("Using instance API key for image generation")
-            elif self.last_external_api_key:  # Last resort cached key
-                api_key = self.last_external_api_key
-                logger.info("Using last resort cached API key for image generation")
-            
-            if not api_key:
-                return (
-                    "ERROR: No API key available for image generation. Please set GEMINI_API_KEY in your environment or provide it in the external_api_key field.",
-                    create_placeholder_image(),
-                )
-
-            # Create Gemini client
-            try:
-                client = genai.Client(api_key=api_key)
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Error initializing Gemini client for image generation: {error_msg}", exc_info=True)
-                
-                # Provide more helpful messages for common errors
-                if "invalid api key" in error_msg.lower() or "unauthorized" in error_msg.lower():
-                    return (
-                        "ERROR: Invalid Gemini API key. Please check your API key and try again.",
-                        create_placeholder_image(),
-                    )
-                elif "quota" in error_msg.lower() or "exceeded" in error_msg.lower():
-                    return (
-                        "ERROR: API quota exceeded. You've reached your usage limit for the Gemini API.",
-                        create_placeholder_image(),
-                    )
-                
-                return (f"Error initializing Gemini client: {error_msg}", create_placeholder_image())
-
-            # Use the same seed as passed from generate_content to ensure consistency
-            logger.info(f"Using seed for image generation: {seed}")
-
-            # Define aspect ratio dimensions for Imagen 3
-            aspect_ratio_dimensions = {
-                "none": (1024, 1024),  # Default square format
-                "1:1": (1024, 1024),  # Square
-                "16:9": (1408, 768),  # Landscape widescreen
-                "9:16": (768, 1408),  # Portrait widescreen
-                "4:3": (1280, 896),  # Standard landscape
-                "3:4": (896, 1280),  # Standard portrait
-                "5:4": (1024, 819),  # Medium landscape format
-                "4:5": (819, 1024),  # Medium portrait format
-            }
-
-            # Get target dimensions based on aspect ratio
-            target_width, target_height = aspect_ratio_dimensions.get(aspect_ratio, (1024, 1024))
-            logger.info(f"Using resolution {target_width}x{target_height} for aspect ratio {aspect_ratio}")
-
-            # Set up generation config with required fields
-            gen_config_args = {
-                "temperature": temperature,
-                "response_modalities": ["Text", "Image"],  # Critical for image generation
-                "seed": seed,  # Always include seed in config
-                "safety_settings": [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                ],
-            }
-
-            generation_config = types.GenerateContentConfig(**gen_config_args)
-
-            # Prepare content for the API
-            content = None
-
-            # Process reference images if provided
-            if images is not None and isinstance(images, torch.Tensor) and images.nelement() > 0:
-                # Convert tensor to list of PIL images - resize to match target dimensions
-                pil_images = prepare_batch_images(images, max_images, max_size=max(target_width, target_height))
-
-                if len(pil_images) > 0:
-                    # Construct prompt with specific dimensions
-                    aspect_string = (
-                        f" with dimensions {target_width}x{target_height}"
-                        if aspect_ratio != "none"
-                        else ""
-                    )
-                    content_text = (
-                        f"Generate a new image in the style of these reference images{aspect_string}: {prompt}"
-                    )
-
-                    # Combine text and images
-                    content = [content_text] + pil_images
-                else:
-                    logger.warning("No valid images found in input tensor")
-
-            # Use text-only prompt if no images or processing failed
-            if content is None:
-                # Include specific dimensions in the prompt
-                if aspect_ratio != "none":
-                    content_text = (
-                        f"Generate a detailed, high-quality image with dimensions {target_width}x{target_height}"
-                        f" of: {prompt}"
-                    )
-                else:
-                    content_text = f"Generate a detailed, high-quality image of: {prompt}"
-                content = content_text
-
-            # Track generated images
-            all_generated_images = []
-            status_text = ""
-
-            # Generate images - handle batch generation with unique seeds
-            for i in range(batch_count):
-                try:
-                    # Generate a unique seed for each batch based on the operation seed
-                    # This ensures consistent but different seeds across batches
-                    current_seed = (seed + i) % (2**31 - 1)
-                    
-                    # Create batch-specific configuration with the unique seed
-                    batch_config = types.GenerateContentConfig(
-                        temperature=temperature,
-                        response_modalities=["Text", "Image"],
-                        seed=current_seed,
-                        safety_settings=[
-                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                        ],
-                    )
-
-                    # Log the seed being used
-                    logger.info(f"Generating batch {i+1} with seed {current_seed}")
-
-                    # Generate content
-                    response = client.models.generate_content(
-                        model=model_name, contents=content, config=batch_config
-                    )
-
-                    # Process response to extract generated images and text
-                    batch_images = []
-                    response_text = ""
-                    finish_reason = None
-
-                    # Check for finish reason which might explain why no images were generated
-                    if hasattr(response, "candidates") and response.candidates:
-                        for candidate in response.candidates:
-                            # Check finish reason if available
-                            if hasattr(candidate, "finish_reason"):
-                                finish_reason = candidate.finish_reason
-                                logger.info(f"Finish reason: {finish_reason}")
-                            
-                            if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
-                                for part in candidate.content.parts:
-                                    # Extract text
-                                    if hasattr(part, "text") and part.text:
-                                        response_text += part.text + "\n"
-
-                                    # Extract image data
-                                    if hasattr(part, "inline_data") and part.inline_data:
-                                        try:
-                                            image_binary = part.inline_data.data
-                                            batch_images.append(image_binary)
-                                        except Exception as img_error:
-                                            logger.error(
-                                                f"Error extracting image from response: {str(img_error)}"
-                                            )
-
-                    if batch_images:
-                        all_generated_images.extend(batch_images)
-                        status_text += (
-                            f"Batch {i+1} (seed {current_seed}): Generated {len(batch_images)} images\n"
-                        )
-                    else:
-                        # Include finish reason in status if available
-                        finish_info = f" (Reason: {finish_reason})" if finish_reason else ""
-                        status_text += f"Batch {i+1} (seed {current_seed}): No images found in response{finish_info}\n"
-                        
-                        # Add more specific guidance for IMAGE_SAFETY or similar issues
-                        if finish_reason and "SAFETY" in str(finish_reason).upper():
-                            status_text += "The request was blocked for safety reasons. Try modifying your prompt to avoid content that might trigger safety filters.\n"
-                        
-                        # Include any text response from the model that might explain the issue
-                        if response_text.strip():
-                            status_text += f"Model message: {response_text.strip()}\n"
-
-                except Exception as batch_error:
-                    status_text += f"Batch {i+1} error: {str(batch_error)}\n"
-
-            # Process generated images into tensors for ComfyUI
-            if all_generated_images:
-                # Create a data structure for process_images_for_comfy
-                image_data = {
-                    "data": [
-                        {"b64_json": base64.b64encode(img).decode("utf-8")}
-                        for img in all_generated_images
-                    ]
-                }
-
-                # Use the utility function to convert images
-                image_tensors, mask_tensors = process_images_for_comfy(
-                    image_data, response_key="data", field_name="b64_json"
-                )
-
-                # Get the actual resolution of the first image for information
-                if isinstance(image_tensors, torch.Tensor) and image_tensors.dim() >= 3:
-                    height, width = image_tensors.shape[1:3]
-                    resolution_info = f"Resolution: {width}x{height}"
-                else:
-                    resolution_info = ""
-
-                result_text = (
-                    f"Successfully generated {len(all_generated_images)} images using"
-                    f" {model_name}.\n"
-                )
-                result_text += f"Prompt: {prompt}\n"
-                result_text += f"Starting seed: {seed}\n"
-                if resolution_info:
-                    result_text += f"{resolution_info}\n"
-
-                return result_text, image_tensors
-
-            # No images were generated successfully
+        # --- API Key ---
+        # Get API key using the helper method 
+        api_key, api_key_source = self._get_active_api_key(external_api_key)
+        
+        if not api_key:
             return (
-                f"No images were generated with {model_name}. Details:\n{status_text}",
+                "ERROR: No API key available for image generation.",
                 create_placeholder_image(),
             )
 
+        # Handle prompt - ensure it's a string before processing
+        if isinstance(prompt, dict):
+            # If prompt is a dict, try to extract text from it
+            if "text" in prompt:
+                prompt_text = str(prompt["text"])
+            else:
+                # If no text key, convert the whole dict to string
+                prompt_text = str(prompt)
+            logger.info(f"Converted dict prompt to string for image generation: {prompt_text[:50]}...")
+        elif isinstance(prompt, (list, tuple)):
+            # If prompt is a list or tuple, join elements
+            prompt_text = " ".join(str(item) for item in prompt)
+            logger.info(f"Converted list/tuple prompt to string for image generation: {prompt_text[:50]}...")
+        else:
+            # Otherwise, ensure it's a string
+            prompt_text = str(prompt)
+
+        # --- Initialize Client ---
+        try:
+            client = genai.Client(api_key=api_key)
         except Exception as e:
-            error_msg = f"Error in image generation: {str(e)}"
+            error_msg = str(e)
+            logger.error(f"Error initializing Gemini client for image generation: {error_msg}", exc_info=True)
+            if "invalid api key" in error_msg.lower(): 
+                return ("ERROR: Invalid Gemini API key.", create_placeholder_image())
+            if "quota" in error_msg.lower(): 
+                return ("ERROR: API quota exceeded.", create_placeholder_image())
+            return (f"Error initializing Gemini client: {error_msg}", create_placeholder_image())
+
+        # --- Seed for this single call ---
+        # Use the consistent seed generated earlier
+        current_seed = seed
+        logger.info(f"Using seed for image generation call: {current_seed}")
+
+        # --- Aspect Ratio / Dimensions ---
+        aspect_ratio_dimensions = {
+            "none": (1024, 1024), "1:1": (1024, 1024), "16:9": (1408, 768),
+            "9:16": (768, 1408), "4:3": (1280, 896), "3:4": (896, 1280),
+            "5:4": (1024, 819), "4:5": (819, 1024),
+        }
+        target_width, target_height = aspect_ratio_dimensions.get(aspect_ratio, (1024, 1024))
+        logger.info(f"Target resolution {target_width}x{target_height} for aspect ratio {aspect_ratio}")
+        dimension_prompt_part = f" Ensure the image dimensions are {target_width}x{target_height}." if aspect_ratio != "none" else ""
+
+        # --- Generation Config ---
+        generation_config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_modalities=["Text", "Image"], # MUST include both
+            seed=current_seed,
+            safety_settings=[ # Keep safety settings relaxed for now
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ],
+            # candidate_count is NOT directly applicable here like in text generation for multiple choices.
+            # The API might return multiple images based on its internal logic, not this count.
+        )
+
+        # --- Prepare Content ---
+        content_parts = []
+        # Add prompt text, including dimension request
+        content_parts.append({"text": prompt_text + dimension_prompt_part})
+
+        # Process and add reference images if provided
+        if images is not None and isinstance(images, torch.Tensor) and images.nelement() > 0:
+            pil_images = []
+            # Handle batch dim
+            num_ref_images = min(images.shape[0], 6) if images.dim() == 4 else 1
+            image_source = images if images.dim() == 4 else images.unsqueeze(0) # Add batch dim if single
+
+            for i in range(num_ref_images):
+                try:
+                    pil_img = tensor_to_pil(image_source[i])
+                    # Resize reference images reasonably
+                    pil_img = resize_image_to_dimensions(pil_img, 1024, 1024, crop_to_fit=False)
+                    # Convert PIL to bytes
+                    buffer = BytesIO()
+                    pil_img.save(buffer, format="PNG")
+                    image_bytes = buffer.getvalue()
+                    # Add image part
+                    content_parts.append({
+                        "inline_data": { "mime_type": "image/png", "data": image_bytes }
+                    })
+                except Exception as ref_img_e:
+                    logger.error(f"Error processing reference image {i}: {ref_img_e}")
+
+        api_content = {"parts": content_parts}
+
+        # --- Make ONE API Call ---
+        all_generated_images = []
+        response_text_parts = []
+        status_text = ""
+        finish_reason = "unknown"
+        final_text = "No text returned by the model."  # Initialize to default value
+
+        try:
+            logger.info(f"Calling Gemini model {model_name} for image generation (Node ID: {unique_id}, Seed: {current_seed})")
+            send_ws_message_safe("if-gemini-sequence-text", {"node_id": unique_id, "text": f"🔄 Calling {model_name} (Seed: {current_seed})..."})
+
+            response = client.models.generate_content(
+                model=model_name, contents=api_content, config=generation_config
+            )
+
+            # Process the response and extract parts
+            all_generated_images = []
+            response_text_parts = []
+            finish_reason = "UNKNOWN"
+            
+            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                if hasattr(response.candidates[0], "finish_reason"):
+                    finish_reason = response.candidates[0].finish_reason
+                
+                for part_idx, part in enumerate(response.candidates[0].content.parts):
+                    if hasattr(part, 'text') and part.text:
+                        response_text_parts.append(part.text)
+                        send_ws_message_safe("if-gemini-sequence-text", {"node_id": unique_id, "text": part.text, "part_index": f"text_{part_idx}"})
+
+                    elif hasattr(part, 'inline_data') and part.inline_data and 'image' in part.inline_data.mime_type:
+                        try:
+                            # Extract and add the image to the collection
+                            image_bytes = part.inline_data.data
+                            all_generated_images.append(image_bytes) # Store raw bytes
+                            # Send image part to UI if needed
+                            img_b64 = base64.b64encode(image_bytes).decode('utf-8')
+                            send_ws_message_safe("if-gemini-sequence-image", {"node_id": unique_id, "image_b64": img_b64, "mime_type": part.inline_data.mime_type, "part_index": f"img_{part_idx}"})
+                        except Exception as img_e:
+                            logger.error(f"Error processing image part: {img_e}")
+                            send_ws_message_safe("if-gemini-sequence-error", {"node_id": unique_id, "message": f"Error processing image: {img_e}"})
+            else:
+                 if response.candidates and hasattr(response.candidates[0], "finish_reason"):
+                    finish_reason = response.candidates[0].finish_reason
+                 logger.warning(f"No valid parts found. Finish reason: {finish_reason}")
+                 status_text = f"No content parts received. Reason: {finish_reason}"
+                 send_ws_message_safe("if-gemini-sequence-text", {"node_id": unique_id, "text": status_text})
+
+            # Update final_text based on response_text_parts
+            final_text = "\n".join(response_text_parts) if response_text_parts else "No text returned by the model."
+
+        except Exception as e:
+            error_msg = f"Error calling Gemini API: {str(e)}"
             logger.error(error_msg, exc_info=True)
-            return error_msg, create_placeholder_image()
+            status_text = error_msg
+            send_ws_message_safe("if-gemini-sequence-error", {"node_id": unique_id, "message": error_msg})
+
+
+        # Process images if any were generated
+        num_images_generated = len(all_generated_images)
+        
+        if num_images_generated > 0:
+            logger.info(f"Generated {num_images_generated} images, processing for ComfyUI...")
+            image_tensors_list = []
+            
+            for i, img_bytes in enumerate(all_generated_images[:max_images]):
+                try:
+                    # Convert bytes to PIL image and then to tensor
+                    pil_image = Image.open(BytesIO(img_bytes)).convert("RGB")
+                    # Match aspect ratio if requested
+                    if aspect_ratio != "none":
+                        target_width, target_height = aspect_ratio_dimensions.get(aspect_ratio, (1024, 1024))
+                        pil_image = resize_image_to_dimensions(pil_image, target_width, target_height)
+                    # Convert to tensor
+                    img_tensor = pil_to_tensor(pil_image)
+                    image_tensors_list.append(img_tensor)
+                except Exception as tensor_e:
+                    logger.error(f"Error processing image {i} to tensor: {tensor_e}")
+            
+            # If we have processed images, batch them; otherwise return placeholder
+            if not image_tensors_list:
+                 result_text = f"Generated {num_images_generated} image(s) but failed to process them.\nReason: {finish_reason}\n{status_text}\nModel Text: {final_text}"
+                 send_ws_message_safe("if-gemini-sequence-complete", {"node_id": unique_id, "message": "Processing failed."})
+                 return (result_text, create_placeholder_image())
+
+            # Process multiple images
+            if len(image_tensors_list) > 1:
+                # Ensure all tensors have the same dimensions
+                height, width = image_tensors_list[0].shape[1:3]
+                for i in range(1, len(image_tensors_list)):
+                    if image_tensors_list[i].shape[1:3] != (height, width):
+                        # Resize to match the first image's dimensions
+                        pil_img = tensor_to_pil(image_tensors_list[i])
+                        pil_img = pil_img.resize((width, height), Image.LANCZOS)
+                        image_tensors_list[i] = pil_to_tensor(pil_img)
+                
+                # Now batch all tensors
+                final_image_batch = torch.cat(image_tensors_list, dim=0)
+            else:
+                # Single image case
+                final_image_batch = image_tensors_list[0]
+                
+            num_images_returned = len(image_tensors_list)
+            logger.info(f"Returning {num_images_returned} processed images")
+            
+            # Check for requested image count from prompt
+            requested_count = None
+            prompt_lower = prompt_text.lower()
+            count_match = re.search(r'generate\s+(\d+)\s+images', prompt_lower)
+            if count_match:
+                try:
+                    requested_count = int(count_match.group(1))
+                except ValueError:
+                    requested_count = None
+            
+            # Add explanation about batch_count vs. API generation
+            api_note = ""
+            if batch_count > 1:
+                api_note = f"\nNote: batch_count={batch_count} was provided, but the Gemini API makes a single API call that may return multiple images based on its internal logic."
+            
+            if requested_count and requested_count > num_images_generated and num_images_generated > 0:
+                api_note += f"\nNote: You requested {requested_count} images in the prompt, but the API returned {num_images_generated}. The Gemini API determines the appropriate number of images based on the context and content requirements."
+                
+            # Format final text output
+            result_text = (
+                f"Generated {num_images_generated} images, returned {num_images_returned}.\n"
+                f"Reason: {finish_reason}\n"
+                f"Model Text: {final_text}"
+                f"{api_note}"
+            )
+            
+            # Create more informative completion message
+            completion_message = f"Complete: {num_images_returned} images."
+            if requested_count and requested_count > num_images_generated:
+                completion_message = f"Complete: {num_images_returned} images (API returned fewer images than the {requested_count} requested)."
+                
+            send_ws_message_safe("if-gemini-sequence-complete", {
+                "node_id": unique_id, 
+                "message": completion_message,
+                "requested_count": requested_count if requested_count else None,
+                "api_count": num_images_generated,
+                "processed_count": num_images_returned
+            })
+            
+            return (result_text, final_image_batch)
+
+        else:
+            # No images generated
+            result_text = f"No images generated by {model_name}. Reason: {finish_reason}\n{status_text}\nModel Text: {final_text}"
+            send_ws_message_safe("if-gemini-sequence-complete", {"node_id": unique_id, "message": "Complete: No images generated."})
+            return (result_text, create_placeholder_image())
 
     def generate_sequence(
         self,
@@ -759,339 +859,269 @@ class GeminiNode:
         temperature=0.4,
         seed=0,
         max_output_tokens=8192,
+        max_images=4,
+        aspect_ratio="none",
         external_api_key="",
         unique_id=None,
         extra_pnginfo=None,
         prompt_=None,
     ):
-        """Generates an interleaved sequence of text and images using Gemini."""
         logger.info(f"Starting generate_sequence for node {unique_id}")
-
+        # Check for SDK availability
         if not self.genai_available:
             return ("ERROR: Google Generative AI SDK not installed.", create_placeholder_image())
-        
-        # Check for real-time UI update capability
-        if not PromptServer:
-            logger.warning("PromptServer not available, cannot send real-time sequence updates.")
-        if not unique_id:
-            logger.warning("Node unique_id not provided, cannot send real-time sequence updates.")
 
+        # Send initialization message to UI if available
+        send_ws_message_safe("if-gemini-sequence-init", {"node_id": unique_id})
+        
+        if not unique_id:
+            logger.warning("Node unique_id is missing, UI updates may be incomplete")
+            
+        # Force the correct model for generation regardless of user selection
+        enforced_model = "gemini-2.0-flash-exp-image-generation"
+        if model_name != enforced_model:
+            logger.warning(f"Sequence generation requires {enforced_model}. Overriding selected model {model_name}.")
+            model_name = enforced_model
+        
+        # Get API key with proper logic
+        api_key, api_key_source = self._get_active_api_key(external_api_key)
+        if not api_key:
+            return ("ERROR: No API key found. Please provide a valid Gemini API key.", create_placeholder_image())
+            
         try:
+            # Import SDK
             from google import genai
             from google.genai import types
-        except ImportError:
-            return ("ERROR: Failed to import Google Generative AI SDK", create_placeholder_image())
-
-        # --- API Key ---
-        # We receive the already determined API key via external_api_key argument
-        api_key = external_api_key
-        if not api_key:
-            return ("ERROR: API key missing for sequence generation.", create_placeholder_image())
-
-        # --- Initialize Client ---
-        try:
-            client = genai.Client(api_key=api_key)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error initializing Gemini client for sequence: {error_msg}", exc_info=True)
-            # More specific errors
-            if "invalid api key" in error_msg.lower() or "unauthorized" in error_msg.lower():
-                return ("ERROR: Invalid Gemini API key.", create_placeholder_image())
-            if "quota" in error_msg.lower() or "exceeded" in error_msg.lower():
-                return ("ERROR: API quota exceeded.", create_placeholder_image())
-            return (f"Error initializing Gemini client: {error_msg}", create_placeholder_image())
-
-        # --- Send Init Message to UI ---
-        if PromptServer and unique_id:
+            
+            # Initialize client
             try:
-                PromptServer.instance.send_sync("if-gemini-sequence-init", {
-                    "node_id": unique_id,
-                    "message": "Starting sequence generation...",
-                })
-            except Exception as ws_e:
-                logger.warning(f"Failed to send initialization WebSocket message: {ws_e}")
-
-        # --- Extract actual prompt text ---
-        # Ensure we have a clean text-only prompt by removing any workflow data
-        actual_prompt = prompt
-        if isinstance(prompt, dict) and "inputs" in prompt:
-            # This is likely workflow data, extract just the prompt text
-            logger.warning("Received prompt as workflow data dictionary, extracting text content")
-            if "prompt" in prompt["inputs"] and isinstance(prompt["inputs"]["prompt"], str):
-                actual_prompt = prompt["inputs"]["prompt"]
-            elif "text" in prompt["inputs"]:
-                if isinstance(prompt["inputs"]["text"], list) and len(prompt["inputs"]["text"]) > 0:
-                    actual_prompt = " ".join(str(item) for item in prompt["inputs"]["text"])
-                elif isinstance(prompt["inputs"]["text"], str):
-                    actual_prompt = prompt["inputs"]["text"]
-        
-        # Also handle the case where it might be wrapped in a list
-        elif isinstance(prompt, list) and len(prompt) > 0:
-            if isinstance(prompt[0], str):
-                actual_prompt = " ".join(str(item) for item in prompt)
-            elif isinstance(prompt[0], dict) and "inputs" in prompt[0]:
-                # Complex case of list of workflow data
-                extracted_parts = []
-                for item in prompt:
-                    if isinstance(item, dict) and "inputs" in item:
-                        if "prompt" in item["inputs"] and isinstance(item["inputs"]["prompt"], str):
-                            extracted_parts.append(item["inputs"]["prompt"])
-                        elif "text" in item["inputs"]:
-                            if isinstance(item["inputs"]["text"], list):
-                                extracted_parts.extend(str(t) for t in item["inputs"]["text"])
-                            else:
-                                extracted_parts.append(str(item["inputs"]["text"]))
-                if extracted_parts:
-                    actual_prompt = " ".join(extracted_parts)
-        
-        # If we somehow still have a dict/complex object, convert to string representation
-        if not isinstance(actual_prompt, str):
-            logger.warning(f"Non-string prompt converted to string: {type(actual_prompt)}")
-            actual_prompt = str(actual_prompt)
-        
-        logger.info(f"Using extracted prompt: {actual_prompt[:100]}...")
-
-        # --- Prepare Contents for API ---
-        try:
-            # Create a simple content object that will work with the API
-            if images is not None and isinstance(images, torch.Tensor) and images.nelement() > 0:
-                # Convert tensor images to PIL images
-                pil_images = []
+                client = genai.Client(api_key=api_key)
+            except Exception as client_e:
+                error_msg = f"Failed to initialize API client: {str(client_e)}"
+                logger.error(error_msg)
+                send_ws_message_safe("if-gemini-sequence-error", {"node_id": unique_id, "message": error_msg})
+                return (error_msg, create_placeholder_image())
                 
-                # Handle batch dimension
-                if len(images.shape) == 4:  # [batch, H, W, C]
-                    batch_size = min(images.shape[0], 6)  # Limit to 6 images
-                    for i in range(batch_size):
-                        pil_img = tensor_to_pil(images[i])
-                        pil_img = resize_image_to_dimensions(pil_img, min(pil_img.width, 1024), min(pil_img.height, 1024))
-                        pil_images.append(pil_img)
-                else:  # Single image [H, W, C]
-                    pil_img = tensor_to_pil(images)
-                    pil_img = resize_image_to_dimensions(pil_img, min(pil_img.width, 1024), min(pil_img.height, 1024))
-                    pil_images.append(pil_img)
-                
-                # Check if we have valid images to use
-                if pil_images:
-                    # For multimodal content (text + images), we need to use the parts format
-                    # This is the most reliable format that works with the API
-                    parts = []
-                    
-                    # Add the text part first
-                    parts.append({"text": actual_prompt})
-                    
-                    # Add image parts
-                    for pil_img in pil_images:
-                        # Convert PIL to bytes
-                        buffer = BytesIO()
-                        pil_img.save(buffer, format="PNG")
-                        image_bytes = buffer.getvalue()
-                        
-                        # Add image part using the correct format for the API
-                        parts.append({
-                            "inline_data": {
-                                "mime_type": "image/png",
-                                "data": image_bytes
-                            }
-                        })
-                    
-                    # Simple API-compatible content format
-                    content = {"parts": parts}
+            # Prepare content for API call
+            aspect_ratio_dimensions = {
+                "none": (1024, 1024),
+                "1:1": (1024, 1024),
+                "16:9": (1408, 768),
+                "9:16": (768, 1408),
+                "4:3": (1280, 896),
+                "3:4": (896, 1280),
+                "5:4": (1024, 819),
+                "4:5": (819, 1024),
+            }
+            target_width, target_height = aspect_ratio_dimensions.get(aspect_ratio, (1024, 1024))
+            
+            # Add aspect ratio request to prompt if specified
+            dimension_prompt = ""
+            if aspect_ratio != "none":
+                dimension_prompt = f" Please create images with aspect ratio {aspect_ratio} ({target_width}x{target_height})."
+            
+            # Handle prompt - ensure it's a string before processing
+            if isinstance(prompt, dict):
+                # If prompt is a dict, try to extract text from it
+                if "text" in prompt:
+                    prompt_text = str(prompt["text"])
                 else:
-                    # Fallback to text-only if no valid images
-                    content = actual_prompt
+                    # If no text key, convert the whole dict to string
+                    prompt_text = str(prompt)
+                logger.info(f"Converted dict prompt to string: {prompt_text[:50]}...")
+            elif isinstance(prompt, (list, tuple)):
+                # If prompt is a list or tuple, join elements
+                prompt_text = " ".join(str(item) for item in prompt)
+                logger.info(f"Converted list/tuple prompt to string: {prompt_text[:50]}...")
             else:
-                # Text-only content (simplest case)
-                content = actual_prompt
+                # Otherwise, ensure it's a string
+                prompt_text = str(prompt)
+                
+            # Enhance prompt for sequence generation
+            prompt_lower = prompt_text.lower()
+            if "generate" in prompt_lower and "images" in prompt_lower:
+                # Try to extract number if user asked for specific count
+                count_match = re.search(r'generate\s+(\d+)\s+images', prompt_lower)
+                count_str = count_match.group(1) if count_match else "multiple"
+                enhanced_prompt = f"Create a sequence of text descriptions and corresponding images for the following request, aiming for around {count_str} steps if possible: {prompt_text}{dimension_prompt}"
+                logger.info(f"Enhanced sequence prompt: {enhanced_prompt[:100]}...")
+                final_prompt = enhanced_prompt
+            else:
+                final_prompt = f"{prompt_text}{dimension_prompt}"
+                
+            # Prepare content parts
+            content_parts = [{"text": final_prompt}]
             
-            logger.debug(f"Prepared content for API type: {type(content)}")
-        except Exception as e:
-            logger.error(f"Error preparing content for sequence API call: {str(e)}", exc_info=True)
-            if PromptServer and unique_id:
-                PromptServer.instance.send_sync("if-gemini-sequence-error", {
-                    "node_id": unique_id,
-                    "message": f"Error preparing content: {str(e)}",
-                })
-            return (f"Error preparing content: {str(e)}", create_placeholder_image())
-
-        # --- Configure Generation ---
-        # Crucially set response_modalities for multimodal output
-        generation_config = types.GenerateContentConfig(
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            seed=seed,
-            response_modalities=['Text', 'Image'],  # Enable multimodal output
-            safety_settings=[
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            # Add reference images if provided
+            if images is not None and isinstance(images, torch.Tensor) and images.nelement() > 0:
+                # Handle single image
+                if images.dim() == 3:
+                    images = images.unsqueeze(0)  # Add batch dimension [1, H, W, C]
+                
+                # Limit number of reference images to process
+                num_ref_images = min(images.shape[0], 6)  # Process up to 6 reference images
+                logger.info(f"Adding {num_ref_images} reference images to request")
+                
+                for i in range(num_ref_images):
+                    try:
+                        # Convert tensor to PIL image
+                        pil_img = tensor_to_pil(images[i])
+                        # Resize image for API (max 4MB)
+                        pil_img = resize_image_to_dimensions(pil_img, 1024, 1024, crop_to_fit=False)
+                        # Convert to bytes
+                        img_buf = BytesIO()
+                        pil_img.save(img_buf, format="PNG")
+                        img_bytes = img_buf.getvalue()
+                        # Add to content parts
+                        content_parts.append({"inline_data": {"mime_type": "image/png", "data": img_bytes}})
+                    except Exception as img_e:
+                        logger.error(f"Error processing reference image {i}: {str(img_e)}")
+            
+            # Configure generation settings
+            safety_settings = [
+                {"category": cat, "threshold": "BLOCK_NONE"} 
+                for cat in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", 
+                           "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]
             ]
-        )
-
-        # --- Call Gemini API ---
-        all_text_parts = []
-        all_image_tensors = []
-        
-        try:
-            logger.info(f"Calling Gemini model {model_name} for sequence generation (Node ID: {unique_id})")
             
-            # Send message to UI about API call starting
-            if PromptServer and unique_id:
-                PromptServer.instance.send_sync("if-gemini-sequence-text", {
-                    "node_id": unique_id,
-                    "text": f"🔄 Calling Gemini API with model {model_name}...",
-                })
+            generation_config = types.GenerateContentConfig(
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+                seed=seed,
+                response_modalities=['Text', 'Image'],  # This is key for mixed text+image output
+                safety_settings=safety_settings
+            )
             
-            # Log the actual content being sent for debugging
-            if isinstance(content, dict) and "parts" in content:
-                part_count = len(content["parts"])
-                part_types = []
-                for part in content["parts"]:
-                    if "text" in part:
-                        part_types.append("text")
-                    elif "inline_data" in part:
-                        part_types.append(part["inline_data"].get("mime_type", "unknown"))
-                logger.info(f"Sending content with {part_count} parts: {part_types}")
-            else:
-                logger.info(f"Sending simple text content of length {len(str(content))}")
+            # Make API call
+            logger.info(f"Calling Gemini model {model_name} for sequence generation (Node ID: {unique_id}, Seed: {seed})")
+            send_ws_message_safe("if-gemini-sequence-text", {"node_id": unique_id, "text": f"🔄 Calling {model_name} (Seed: {seed})..."})
             
-            # Make the API call
             response = client.models.generate_content(
                 model=model_name,
-                contents=content,
-                config=generation_config,
+                contents={"parts": content_parts},
+                config=generation_config
             )
-            logger.debug(f"Received API response for node {unique_id}")
-
-            # --- Process Response Parts and Send Updates ---
-            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            
+            # Process response
+            all_text_parts = []
+            all_image_tensors = []
+            finish_reason = "UNKNOWN"
+            
+            if response.candidates and response.candidates[0].content:
+                if hasattr(response.candidates[0], "finish_reason"):
+                    finish_reason = response.candidates[0].finish_reason.name
+                    logger.info(f"Response finish reason: {finish_reason}")
+                
+                # Process each part in the response
                 for part_idx, part in enumerate(response.candidates[0].content.parts):
-                    # Process text parts
                     if hasattr(part, 'text') and part.text:
                         logger.debug(f"Node {unique_id}: Received text part")
                         all_text_parts.append(part.text)
-                        # Send text update via WebSocket
-                        if PromptServer and unique_id:
-                            try:
-                                PromptServer.instance.send_sync("if-gemini-sequence-text", {
-                                    "node_id": unique_id, 
-                                    "text": part.text,
-                                    "part_index": part_idx
-                                })
-                            except Exception as ws_e:
-                                logger.warning(f"Node {unique_id}: Failed to send text WebSocket update: {ws_e}")
-
-                    # Process image parts
+                        send_ws_message_safe("if-gemini-sequence-text", {"node_id": unique_id, "text": part.text, "part_index": f"text_{part_idx}"})
+                        
                     elif hasattr(part, 'inline_data') and part.inline_data and 'image' in part.inline_data.mime_type:
-                        logger.debug(f"Node {unique_id}: Received image part (mime: {part.inline_data.mime_type})")
                         try:
-                            # Get the binary image data
+                            logger.debug(f"Node {unique_id}: Received image part {part_idx}")
+                            # Process the image
                             image_bytes = part.inline_data.data
                             img_b64 = base64.b64encode(image_bytes).decode('utf-8')
-
-                            # Send image update via WebSocket for display
-                            if PromptServer and unique_id:
-                                try:
-                                    PromptServer.instance.send_sync("if-gemini-sequence-image", {
-                                        "node_id": unique_id, 
-                                        "image_b64": img_b64, 
-                                        "mime_type": part.inline_data.mime_type,
-                                        "part_index": part_idx
-                                    })
-                                except Exception as ws_e:
-                                    logger.warning(f"Node {unique_id}: Failed to send image WebSocket update: {ws_e}")
-
+                            send_ws_message_safe("if-gemini-sequence-image", {"node_id": unique_id, "image_b64": img_b64, "mime_type": part.inline_data.mime_type, "part_index": f"img_{part_idx}"})
+                            
                             # Convert to tensor for final output batch
-                            pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-                            img_tensor = pil_to_tensor(pil_image)  # Should return [1, H, W, 3]
-                            all_image_tensors.append(img_tensor)
-
+                            if len(all_image_tensors) < max_images:  # Only process up to max_images
+                                pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+                                # Apply aspect ratio if specified
+                                if aspect_ratio != "none":
+                                    pil_image = resize_image_to_dimensions(pil_image, target_width, target_height)
+                                # Convert to tensor
+                                img_tensor = pil_to_tensor(pil_image)
+                                all_image_tensors.append(img_tensor)
+                            else:
+                                logger.warning(f"Node {unique_id}: Skipping image {part_idx} as max_images limit reached")
                         except Exception as img_e:
                             logger.error(f"Node {unique_id}: Error processing image part: {str(img_e)}", exc_info=True)
-                            # Send error message via WebSocket
-                            if PromptServer and unique_id:
-                                PromptServer.instance.send_sync("if-gemini-sequence-error", {
-                                    "node_id": unique_id, 
-                                    "message": f"Error processing image: {str(img_e)}",
-                                    "part_index": part_idx
-                                })
-
+                            send_ws_message_safe("if-gemini-sequence-error", {"node_id": unique_id, "message": f"Error processing image: {str(img_e)}", "part_index": f"img_{part_idx}"})
                     else:
                         logger.warning(f"Node {unique_id}: Received unsupported part type or empty part")
             else:
-                # Handle cases where the response might be blocked or empty
-                finish_reason = "unknown"
-                if response.candidates and hasattr(response.candidates[0], "finish_reason"):
-                    finish_reason = response.candidates[0].finish_reason
-                     
-                logger.warning(f"Node {unique_id}: No valid parts found in Gemini response. Finish reason: {finish_reason}")
-                final_status = f"Generation complete but no content received. (Reason: {finish_reason})"
-                
-                # Send status update
-                if PromptServer and unique_id:
-                    PromptServer.instance.send_sync("if-gemini-sequence-text", {
-                        "node_id": unique_id, 
-                        "text": final_status
-                    })
-                all_text_parts.append(final_status)
-
-            # --- Prepare Final Node Outputs ---
-            # Concatenate all text parts for text output
-            final_text = "\n".join(all_text_parts) if all_text_parts else "No text generated in sequence."
-
-            # Create final image batch
-            final_image_batch = None
+                logger.warning(f"No valid parts found in response. Finish reason: {finish_reason}")
+                status_text = f"Generation finished but no content received. (Reason: {finish_reason})"
+                send_ws_message_safe("if-gemini-sequence-text", {"node_id": unique_id, "text": status_text})
+                all_text_parts.append(status_text)
+            
+            # Prepare final outputs
+            # Create batched tensor from all images
             if all_image_tensors:
-                if len(all_image_tensors) > 1:
-                    # Get dimensions from first image
-                    target_h = all_image_tensors[0].shape[1]
-                    target_w = all_image_tensors[0].shape[2]
-                    
-                    # Resize all images to match first image dimensions
+                try:
+                    # Ensure all tensors are the same size for batching
+                    target_h, target_w = all_image_tensors[0].shape[1:3]
                     resized_tensors = []
+                    
                     for tensor in all_image_tensors:
                         if tensor.shape[1] != target_h or tensor.shape[2] != target_w:
                             logger.debug(f"Resizing image from {tensor.shape[1]}x{tensor.shape[2]} to {target_h}x{target_w}")
                             pil_img = tensor_to_pil(tensor.squeeze(0))
-                            resized_pil = resize_image_to_dimensions(pil_img, target_w, target_h)
-                            resized_tensor = pil_to_tensor(resized_pil)
+                            resized = resize_image_to_dimensions(pil_img, target_w, target_h)
+                            resized_tensor = pil_to_tensor(resized)
                             resized_tensors.append(resized_tensor)
                         else:
                             resized_tensors.append(tensor)
                     
-                    # Concatenate all tensors into a batch
                     final_image_batch = torch.cat(resized_tensors, dim=0)
-                else:
-                    # Just one image, use it directly
-                    final_image_batch = all_image_tensors[0]
+                except Exception as batch_e:
+                    logger.error(f"Error creating image batch: {str(batch_e)}")
+                    final_image_batch = create_placeholder_image()
             else:
-                # No images generated, return placeholder
+                # No images in response
                 final_image_batch = create_placeholder_image()
-
-            # Send final completion message via WebSocket
-            if PromptServer and unique_id:
-                completion_message = f"✅ Sequence generation complete: {len(all_text_parts)} text parts and {len(all_image_tensors)} images."
-                PromptServer.instance.send_sync("if-gemini-sequence-complete", {
-                    "node_id": unique_id, 
-                    "message": completion_message,
-                    "text_count": len(all_text_parts),
-                    "image_count": len(all_image_tensors)
-                })
-
-            logger.info(f"Node {unique_id}: Sequence generation finished. Returning {len(all_text_parts)} text parts and {len(all_image_tensors)} images.")
-            return (final_text, final_image_batch)
-
+            
+            # Create final text output with improved information
+            final_text = "\n\n".join(all_text_parts) if all_text_parts else "No text generated."
+            
+            # Check if user requested specific number of images
+            requested_count = None
+            count_match = re.search(r'generate\s+(\d+)\s+images', prompt_lower)
+            if count_match:
+                try:
+                    requested_count = int(count_match.group(1))
+                except ValueError:
+                    requested_count = None
+            
+            # Add information about image generation limitations if applicable
+            num_images_generated = len(all_image_tensors)
+            api_note = ""
+            if requested_count and requested_count > num_images_generated and num_images_generated > 0:
+                api_note = (f"\n\nNote: You requested {requested_count} images, but the API returned {num_images_generated}. "
+                            f"The Gemini API often returns fewer images than requested as it determines "
+                            f"the appropriate number based on the context and content requirements.")
+            
+            # Create result text with enhanced information
+            result_text = f"Sequence generation with {model_name}\n"
+            result_text += f"Finish reason: {finish_reason}\n"
+            result_text += f"Generated {len(all_text_parts)} text parts and {num_images_generated} images.\n"
+            if api_note:
+                result_text += api_note
+            result_text += f"\n\n{final_text}"
+            
+            # Send final completion message
+            completion_message = f"✅ Sequence generation complete: {len(all_text_parts)} text parts, {num_images_generated} images. Reason: {finish_reason}"
+            if requested_count and requested_count > num_images_generated:
+                completion_message += f" (Note: API returned fewer images than the {requested_count} requested)"
+                
+            send_ws_message_safe("if-gemini-sequence-complete", {
+                "node_id": unique_id, 
+                "message": completion_message, 
+                "text_count": len(all_text_parts), 
+                "image_count": num_images_generated
+            })
+            
+            logger.info(f"Node {unique_id}: Sequence finished. Returning {len(all_text_parts)} text parts and {num_images_generated} images.")
+            return (result_text, final_image_batch)
+            
         except Exception as e:
             error_msg = f"Error during sequence generation: {str(e)}"
             logger.error(f"Node {unique_id}: {error_msg}", exc_info=True)
-            
-            # Send error update via WebSocket
-            if PromptServer and unique_id:
-                PromptServer.instance.send_sync("if-gemini-sequence-error", {
-                    "node_id": unique_id, 
-                    "message": error_msg
-                })
-            
+            send_ws_message_safe("if-gemini-sequence-error", {"node_id": unique_id, "message": error_msg})
             return (error_msg, create_placeholder_image())
 
 def get_available_models(api_key):
