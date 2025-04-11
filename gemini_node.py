@@ -200,6 +200,7 @@ class GeminiNode:
                 "max_images": ("INT", {"default": 6, "min": 1, "max": 16}),
                 "max_output_tokens": ("INT", {"default": 8192, "min": 1, "max": 32768}),
                 "use_random_seed": ("BOOLEAN", {"default": False}),
+                "api_call_delay": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 60.0, "step": 0.1}),
             },
         }
 
@@ -228,6 +229,7 @@ class GeminiNode:
         use_random_seed=False,
         model_name="gemini-2.0-flash-exp",
         sequential_generation=False,
+        api_call_delay=1.0,
     ):
         """Generate content using Gemini model with various input types."""
 
@@ -303,6 +305,7 @@ class GeminiNode:
                 external_api_key=cleaned_external_key,
                 api_key_source=api_key_source,
                 sequential_generation=sequential_generation,
+                api_call_delay=api_call_delay,
             )
 
         # Initialize the API client with the API key
@@ -483,6 +486,7 @@ class GeminiNode:
         external_api_key="",
         api_key_source=None,
         sequential_generation=False,
+        api_call_delay=1.0,
     ):
         """Generate images using Gemini models with image generation capabilities"""
         try:
@@ -606,6 +610,11 @@ class GeminiNode:
                 
                 # Process each step in the sequence
                 for i in range(batch_count):
+                    # Add delay before each API call except the first one
+                    if i > 0 and api_call_delay > 0:
+                        logger.info(f"Waiting for {api_call_delay:.1f} seconds before next API call...")
+                        time.sleep(api_call_delay)
+                    
                     try:
                         # Generate a unique seed for each step
                         current_seed = (seed + i) % (2**31 - 1)
@@ -740,6 +749,11 @@ class GeminiNode:
             else:
                 # Handle standard batch generation of separate images
                 for i in range(batch_count):
+                    # Add delay before each API call except the first one
+                    if i > 0 and api_call_delay > 0:
+                        logger.info(f"Waiting for {api_call_delay:.1f} seconds before next API call...")
+                        time.sleep(api_call_delay)
+                    
                     try:
                         # Generate a unique seed for each batch based on the operation seed
                         # This ensures consistent but different seeds across batches
