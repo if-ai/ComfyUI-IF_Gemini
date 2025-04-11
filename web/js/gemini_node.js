@@ -36,6 +36,66 @@ app.registerExtension({
                 // Store model widget reference for later updates
                 this.modelWidget = this.widgets.find(w => w.name === "model_name");
 
+                // Find and hide original sequential_generation widget
+                const originalSequentialWidget = this.widgets.find(w => w.name === "sequential_generation");
+                let originalSequentialValue = false; // Default value
+                
+                if (originalSequentialWidget) {
+                    originalSequentialValue = originalSequentialWidget.value; // Get current value
+                    originalSequentialWidget.type = "hidden"; // Hide the original widget
+                    console.log(`GeminiNode ${this.id}: Hiding original sequential_generation widget.`);
+                } else {
+                    console.warn(`GeminiNode ${this.id}: Could not find original sequential_generation widget to hide.`);
+                }
+
+                // Find a good position for the toggle - before batch_count
+                const batchCountWidget = this.widgets.find(w => w.name === "batch_count");
+                let insertIndex = batchCountWidget ? this.widgets.indexOf(batchCountWidget) : -1;
+                if (insertIndex === -1) {
+                    insertIndex = this.widgets.length; // Fallback to end of widgets
+                }
+
+                // Add custom toggle widget with temporary name to avoid conflict
+                const toggleWidgetTempName = "sequential_generation_toggle_ui";
+                const sequentialToggle = this.addWidget(
+                    "toggle",
+                    toggleWidgetTempName,
+                    originalSequentialValue,
+                    (value, widget, node) => {
+                        // Update the hidden original widget's value
+                        const hiddenWidget = node.widgets.find(w => w.name === "sequential_generation" && w.type === "hidden");
+                        if (hiddenWidget) {
+                            hiddenWidget.value = value;
+                            console.log(`GeminiNode ${node.id}: Hidden sequential_generation value set to ${value}`);
+                        } else {
+                            console.error(`GeminiNode ${node.id}: Could not find hidden sequential_generation widget to update value!`);
+                        }
+
+                        // Update batch_count label for better UX
+                        const batchWidget = node.widgets.find(w => w.name === "batch_count");
+                        if (batchWidget) {
+                            const labelElement = batchWidget.inputEl?.previousElementSibling;
+                            if (labelElement) {
+                                labelElement.textContent = value ? "Sequence Steps" : "Batch Count";
+                            }
+                            node.setDirtyCanvas(true, true);
+                        }
+                    },
+                    { on: "SEQUENCE", off: "BATCH" }
+                );
+                sequentialToggle.serialize = false; // Don't serialize the UI toggle
+                
+                // Rename the toggle for display purposes
+                sequentialToggle.name = "sequential_generation";
+                
+                // Reposition the toggle widget to desired position
+                const currentToggleIndex = this.widgets.indexOf(sequentialToggle);
+                if (currentToggleIndex !== -1 && currentToggleIndex !== insertIndex) {
+                    const widgetToMove = this.widgets.splice(currentToggleIndex, 1)[0];
+                    this.widgets.splice(insertIndex, 0, widgetToMove);
+                    console.log(`GeminiNode ${this.id}: Moved sequential toggle to index ${insertIndex}`);
+                }
+
                 // Add update models button
                 const updateModelsBtn = this.addWidget("button", "Update Models List", null, () => {
                     this.updateGeminiModels();

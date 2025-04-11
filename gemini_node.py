@@ -187,7 +187,7 @@ class GeminiNode:
                 "video": ("IMAGE",),
                 "audio": ("AUDIO",),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
-                "batch_count": ("INT", {"default": 4, "min": 1, "max": 8}),
+                "batch_count": ("INT", {"default": 4, "min": 1, "max": 20}),
                 "aspect_ratio": (
                     ["none", "1:1", "16:9", "9:16", "4:3", "3:4", "5:4", "4:5"],
                     {"default": "none"},
@@ -196,6 +196,7 @@ class GeminiNode:
                 "chat_mode": ("BOOLEAN", {"default": False}),
                 "clear_history": ("BOOLEAN", {"default": False}),
                 "structured_output": ("BOOLEAN", {"default": False}),
+                "sequential_generation": ("BOOLEAN", {"default": False}),
                 "max_images": ("INT", {"default": 6, "min": 1, "max": 16}),
                 "max_output_tokens": ("INT", {"default": 8192, "min": 1, "max": 32768}),
                 "use_random_seed": ("BOOLEAN", {"default": False}),
@@ -226,6 +227,7 @@ class GeminiNode:
         aspect_ratio="none",
         use_random_seed=False,
         model_name="gemini-2.0-flash-exp",
+        sequential_generation=False,
     ):
         """Generate content using Gemini model with various input types."""
 
@@ -300,6 +302,7 @@ class GeminiNode:
                 use_random_seed=use_random_seed,
                 external_api_key=cleaned_external_key,
                 api_key_source=api_key_source,
+                sequential_generation=sequential_generation,
             )
 
         # Initialize the API client with the API key
@@ -331,34 +334,37 @@ class GeminiNode:
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ]
 
-        generation_config = types.GenerateContentConfig(
-            max_output_tokens=max_output_tokens, 
-            temperature=temperature, 
-            seed=operation_seed,  # Use our consistent seed
-            safety_settings=safety_settings
-        )
+        # Prepare generation config with all necessary parameters
+        generation_config_params = {
+            "max_output_tokens": max_output_tokens, 
+            "temperature": temperature, 
+            "seed": operation_seed,
+            "safety_settings": safety_settings
+        }
+        
+        # Add response_mime_type for structured output
+        if structured_output:
+            generation_config_params["response_mime_type"] = "application/json"
+            logger.info("Requesting structured JSON output")
+            
+        generation_config = types.GenerateContentConfig(**generation_config_params)
 
         try:
             if chat_mode:
                 # Handle chat mode with proper history
                 history = self.chat_history.get_messages_for_api()
 
-                # Create chat session
-                chat_session = client.chats.create(
-                    model=model_name,
-                    history=history
-                )
-
                 # Create appropriate content parts based on input type
                 contents = prepare_response(
                     prompt,
-                    "image" if images is not None else "text",
+                    "image" if images is not None else ("video" if video is not None else ("audio" if audio is not None else "text")),
                     None,
                     images,
                     video,
                     audio,
                     max_images,
                 )
+                
                 # Extract content for chat format
                 if (
                     isinstance(contents, list)
@@ -366,20 +372,58 @@ class GeminiNode:
                     and isinstance(contents[0], dict)
                     and "parts" in contents[0]
                 ):
-                    contents = contents[0]["parts"]
+                    current_message_parts = contents[0]["parts"]
+                else:
+                    # Fallback if we get unexpected format
+                    current_message_parts = [{"text": prompt}]
+                    logger.warning("Unexpected format from prepare_response, using text prompt only")
 
-                # Send message to chat and get response
-                response = chat_session.send_message(
-                    content=contents,
-                    config=generation_config,
-                )
+                try:
+                    # Create chat session with proper history
+                    chat_session = client.chats.create(
+                        model=model_name,
+                        history=history
+                    )
 
-                # Add to history and format response
-                self.chat_history.add_message("user", prompt)
-                self.chat_history.add_message("assistant", response.text)
+                    # Send message to chat and get response
+                    response = chat_session.send_message(
+                        content=current_message_parts,
+                        config=generation_config,
+                    )
 
-                # Return the chat history
-                generated_content = self.chat_history.get_formatted_history()
+                    # Process the response
+                    if structured_output:
+                        try:
+                            # Try to parse the response as JSON
+                            import json
+                            raw_text = response.text
+                            parsed_json = json.loads(raw_text)
+                            # Pretty print the JSON for better readability
+                            response_text = json.dumps(parsed_json, indent=2)
+                            logger.info("Successfully parsed structured JSON chat response")
+                        except (json.JSONDecodeError, Exception) as e:
+                            # Fallback to raw text if JSON parsing fails
+                            logger.warning(f"Failed to parse structured JSON output in chat: {str(e)}")
+                            response_text = f"Warning: Requested JSON output but received non-JSON response:\n\n{response.text}"
+                    else:
+                        response_text = response.text
+
+                    # Add to history and format response
+                    self.chat_history.add_message("user", prompt)
+                    self.chat_history.add_message("assistant", response_text)
+
+                    # Return the chat history
+                    generated_content = self.chat_history.get_formatted_history()
+                    
+                except Exception as chat_error:
+                    logger.error(f"Error in chat session: {str(chat_error)}", exc_info=True)
+                    if "not supported" in str(chat_error).lower() and "json" in str(chat_error).lower():
+                        generated_content = f"Error: This model doesn't support structured JSON output in chat mode. Try a different model or disable structured output."
+                    else:
+                        generated_content = f"Error in chat session: {str(chat_error)}"
+                    # Add error to chat history for transparency
+                    self.chat_history.add_message("user", prompt)
+                    self.chat_history.add_message("assistant", generated_content)
 
             else:
                 # Standard non-chat mode - prepare content for each input type
@@ -393,23 +437,6 @@ class GeminiNode:
                     max_images,
                 )
 
-                # Add structured output instruction if requested
-                if structured_output:
-                    if (
-                        isinstance(contents, list)
-                        and len(contents) > 0
-                        and isinstance(contents[0], dict)
-                        and "parts" in contents[0]
-                        and len(contents[0]["parts"]) > 0
-                    ):
-                        if (
-                            isinstance(contents[0]["parts"][0], dict)
-                            and "text" in contents[0]["parts"][0]
-                        ):
-                            contents[0]["parts"][0][
-                                "text"
-                            ] = f"Please provide the response in a structured format. {contents[0]['parts'][0]['text']}"
-
                 # Generate content using the model
                 response = client.models.generate_content(
                     model=model_name,
@@ -417,7 +444,23 @@ class GeminiNode:
                     config=generation_config,
                 )
 
-                generated_content = response.text
+                # Process the response, handling structured output if requested
+                if structured_output:
+                    try:
+                        # Try to parse the response as JSON
+                        import json
+                        raw_text = response.text
+                        parsed_json = json.loads(raw_text)
+                        # Pretty print the JSON for better readability
+                        generated_content = json.dumps(parsed_json, indent=2)
+                        logger.info("Successfully parsed structured JSON response")
+                    except (json.JSONDecodeError, Exception) as e:
+                        # Fallback to raw text if JSON parsing fails
+                        logger.warning(f"Failed to parse structured JSON output: {str(e)}")
+                        generated_content = f"Warning: Requested JSON output but received non-JSON response:\n\n{response.text}"
+                else:
+                    # Standard text response
+                    generated_content = response.text
 
         except Exception as e:
             logger.error(f"Error generating content: {str(e)}", exc_info=True)
@@ -439,6 +482,7 @@ class GeminiNode:
         use_random_seed=False,
         external_api_key="",
         api_key_source=None,
+        sequential_generation=False,
     ):
         """Generate images using Gemini models with image generation capabilities"""
         try:
@@ -540,162 +584,335 @@ class GeminiNode:
 
             generation_config = types.GenerateContentConfig(**gen_config_args)
 
-            # Prepare content for the API
-            content = None
-
             # Process reference images if provided
+            ref_images = []
             if images is not None and isinstance(images, torch.Tensor) and images.nelement() > 0:
                 # Convert tensor to list of PIL images - resize to match target dimensions
-                pil_images = prepare_batch_images(images, max_images, max_size=max(target_width, target_height))
+                ref_images = prepare_batch_images(images, max_images, max_size=max(target_width, target_height))
+                logger.info(f"Prepared {len(ref_images)} reference images")
 
-                if len(pil_images) > 0:
-                    # Construct prompt with specific dimensions
-                    aspect_string = (
-                        f" with dimensions {target_width}x{target_height}"
-                        if aspect_ratio != "none"
-                        else ""
-                    )
-                    content_text = (
-                        f"Generate a new image in the style of these reference images{aspect_string}: {prompt}"
-                    )
-
-                    # Combine text and images
-                    content = [content_text] + pil_images
-                else:
-                    logger.warning("No valid images found in input tensor")
-
-            # Use text-only prompt if no images or processing failed
-            if content is None:
-                # Include specific dimensions in the prompt
-                if aspect_ratio != "none":
-                    content_text = (
-                        f"Generate a detailed, high-quality image with dimensions {target_width}x{target_height}"
-                        f" of: {prompt}"
-                    )
-                else:
-                    content_text = f"Generate a detailed, high-quality image of: {prompt}"
-                content = content_text
-
-            # Track generated images
-            all_generated_images = []
+            # Initialize collections for results - accumulate all results before returning
+            all_generated_images_bytes = []
+            all_generated_text = []
             status_text = ""
-
-            # Generate images - handle batch generation with unique seeds
-            for i in range(batch_count):
-                try:
-                    # Generate a unique seed for each batch based on the operation seed
-                    # This ensures consistent but different seeds across batches
-                    current_seed = (seed + i) % (2**31 - 1)
-                    
-                    # Create batch-specific configuration with the unique seed
-                    batch_config = types.GenerateContentConfig(
-                        temperature=temperature,
-                        response_modalities=["Text", "Image"],
-                        seed=current_seed,
-                        safety_settings=[
-                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                        ],
-                    )
-
-                    # Log the seed being used
-                    logger.info(f"Generating batch {i+1} with seed {current_seed}")
-
-                    # Generate content
-                    response = client.models.generate_content(
-                        model=model_name, contents=content, config=batch_config
-                    )
-
-                    # Process response to extract generated images and text
-                    batch_images = []
-                    response_text = ""
-                    finish_reason = None
-
-                    # Check for finish reason which might explain why no images were generated
-                    if hasattr(response, "candidates") and response.candidates:
-                        for candidate in response.candidates:
-                            # Check finish reason if available
-                            if hasattr(candidate, "finish_reason"):
-                                finish_reason = candidate.finish_reason
-                                logger.info(f"Finish reason: {finish_reason}")
-                            
-                            if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
-                                for part in candidate.content.parts:
-                                    # Extract text
-                                    if hasattr(part, "text") and part.text:
-                                        response_text += part.text + "\n"
-
-                                    # Extract image data
-                                    if hasattr(part, "inline_data") and part.inline_data:
-                                        try:
-                                            image_binary = part.inline_data.data
-                                            batch_images.append(image_binary)
-                                        except Exception as img_error:
-                                            logger.error(
-                                                f"Error extracting image from response: {str(img_error)}"
-                                            )
-
-                    if batch_images:
-                        all_generated_images.extend(batch_images)
-                        status_text += (
-                            f"Batch {i+1} (seed {current_seed}): Generated {len(batch_images)} images\n"
+            
+            # Sequential generation mode
+            if sequential_generation:
+                logger.info(f"Using sequential generation mode for {batch_count} steps")
+                
+                # Initialize history for sequential generation
+                history = []
+                current_prompt = prompt
+                
+                # Process each step in the sequence
+                for i in range(batch_count):
+                    try:
+                        # Generate a unique seed for each step
+                        current_seed = (seed + i) % (2**31 - 1)
+                        logger.info(f"Sequential step {i+1}/{batch_count} with seed {current_seed}")
+                        
+                        # Update config with current seed
+                        step_config = types.GenerateContentConfig(
+                            temperature=temperature,
+                            response_modalities=["Text", "Image"],
+                            seed=current_seed,
+                            safety_settings=[
+                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                            ],
                         )
-                    else:
-                        # Include finish reason in status if available
-                        finish_info = f" (Reason: {finish_reason})" if finish_reason else ""
-                        status_text += f"Batch {i+1} (seed {current_seed}): No images found in response{finish_info}\n"
                         
-                        # Add more specific guidance for IMAGE_SAFETY or similar issues
-                        if finish_reason and "SAFETY" in str(finish_reason).upper():
-                            status_text += "The request was blocked for safety reasons. Try modifying your prompt to avoid content that might trigger safety filters.\n"
+                        # Prepare content for this step
+                        if i == 0:
+                            # First step includes reference images if available
+                            if ref_images:
+                                # Construct prompt with specific dimensions
+                                aspect_string = f" with dimensions {target_width}x{target_height}" if aspect_ratio != "none" else ""
+                                content_text = f"Generate a sequence of {batch_count} images{aspect_string}. First image: {prompt}"
+                                
+                                # Combine text and images
+                                content = [content_text] + ref_images
+                            else:
+                                # Include specific dimensions in the prompt
+                                if aspect_ratio != "none":
+                                    content_text = f"Generate a sequence of {batch_count} images with dimensions {target_width}x{target_height}. First image: {prompt}"
+                                else:
+                                    content_text = f"Generate a sequence of {batch_count} images. First image: {prompt}"
+                                content = content_text
+                                
+                            # For history, we'll track the first content differently
+                            if isinstance(content, list):
+                                parts = []
+                                for item in content:
+                                    if isinstance(item, str):
+                                        parts.append({"text": item})
+                                    else:  # Assume PIL image
+                                        img_byte_arr = BytesIO()
+                                        item.save(img_byte_arr, format='PNG')
+                                        img_byte_arr = img_byte_arr.getvalue()
+                                        parts.append({
+                                            "inline_data": {
+                                                "mime_type": "image/png",
+                                                "data": img_byte_arr
+                                            }
+                                        })
+                                history.append({"role": "user", "parts": parts})
+                            else:
+                                history.append({"role": "user", "parts": [{"text": content}]})
+                        else:
+                            # Subsequent steps - continue from previous output
+                            content_text = f"Generate the next image in the sequence. Step {i+1} of {batch_count}: {current_prompt}"
+                            content = content_text
+                            history.append({"role": "user", "parts": [{"text": content_text}]})
                         
-                        # Include any text response from the model that might explain the issue
-                        if response_text.strip():
-                            status_text += f"Model message: {response_text.strip()}\n"
+                        # Generate content for this step
+                        response = client.models.generate_content(
+                            model=model_name, contents=content if i == 0 else history, config=step_config
+                        )
+                        
+                        # Process response
+                        step_images_bytes = []
+                        step_text = ""
+                        finish_reason = None
+                        
+                        if hasattr(response, 'candidates') and response.candidates:
+                            for candidate in response.candidates:
+                                if hasattr(candidate, 'finish_reason'):
+                                    finish_reason = candidate.finish_reason
+                                    logger.info(f"Step {i+1} finish reason: {finish_reason}")
+                                
+                                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                                    model_parts = []
+                                    for part in candidate.content.parts:
+                                        # Extract text
+                                        if hasattr(part, 'text') and part.text:
+                                            step_text += part.text + "\n"
+                                            model_parts.append({"text": part.text})
+                                        
+                                        # Extract image data
+                                        if hasattr(part, 'inline_data') and part.inline_data:
+                                            try:
+                                                image_binary = part.inline_data.data
+                                                step_images_bytes.append(image_binary)
+                                                model_parts.append({
+                                                    "inline_data": {
+                                                        "mime_type": part.inline_data.mime_type,
+                                                        "data": image_binary
+                                                    }
+                                                })
+                                            except Exception as img_error:
+                                                logger.error(f"Error extracting image from response: {str(img_error)}")
+                                    
+                                    # Add model response to history
+                                    history.append({"role": "model", "parts": model_parts})
+                        
+                        # Update current prompt for next iteration with text from this response
+                        if step_text.strip():
+                            # Use the text response as context for the next prompt
+                            current_prompt = step_text.strip()
+                            all_generated_text.append(f"Step {i+1}:\n{current_prompt}")
+                        else:
+                            all_generated_text.append(f"Step {i+1}: No text generated")
+                            # Use a generic continue prompt if no text was generated
+                            current_prompt = "Continue the sequence"
+                        
+                        # Accumulate images from this step (don't process them yet)
+                        if step_images_bytes:
+                            all_generated_images_bytes.extend(step_images_bytes)
+                            status_text += f"Step {i+1} (seed {current_seed}): Generated {len(step_images_bytes)} image(s)\n"
+                        else:
+                            status_text += f"Step {i+1} (seed {current_seed}): No images generated\n"
+                            
+                            # If no images were generated in this step, we might want to stop the sequence
+                            if finish_reason and "SAFETY" in str(finish_reason).upper():
+                                status_text += "Step blocked for safety reasons. Stopping sequence.\n"
+                                break
+                    
+                    except Exception as batch_error:
+                        error_msg = f"Error in sequence step {i+1}: {str(batch_error)}"
+                        logger.error(error_msg, exc_info=True)
+                        status_text += error_msg + "\n"
+                        # Continue with next step despite error
+            
+            # Standard batch generation mode
+            else:
+                # Handle standard batch generation of separate images
+                for i in range(batch_count):
+                    try:
+                        # Generate a unique seed for each batch based on the operation seed
+                        # This ensures consistent but different seeds across batches
+                        current_seed = (seed + i) % (2**31 - 1)
+                        
+                        # Create batch-specific configuration with the unique seed
+                        batch_config = types.GenerateContentConfig(
+                            temperature=temperature,
+                            response_modalities=["Text", "Image"],
+                            seed=current_seed,
+                            safety_settings=[
+                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                            ],
+                        )
 
-                except Exception as batch_error:
-                    status_text += f"Batch {i+1} error: {str(batch_error)}\n"
+                        # Log the seed being used
+                        logger.info(f"Generating batch {i+1} with seed {current_seed}")
+                        
+                        # Prepare content for batch
+                        if ref_images:
+                            # Construct prompt with specific dimensions
+                            aspect_string = f" with dimensions {target_width}x{target_height}" if aspect_ratio != "none" else ""
+                            content_text = f"Generate a new image{aspect_string}: {prompt}"
+                            
+                            # Combine text and images
+                            content = [content_text] + ref_images
+                        else:
+                            # Include specific dimensions in the prompt
+                            if aspect_ratio != "none":
+                                content_text = f"Generate a detailed, high-quality image with dimensions {target_width}x{target_height} of: {prompt}"
+                            else:
+                                content_text = f"Generate a detailed, high-quality image of: {prompt}"
+                            content = content_text
 
-            # Process generated images into tensors for ComfyUI
-            if all_generated_images:
-                # Create a data structure for process_images_for_comfy
-                image_data = {
-                    "data": [
-                        {"b64_json": base64.b64encode(img).decode("utf-8")}
-                        for img in all_generated_images
-                    ]
-                }
+                        # Generate content
+                        response = client.models.generate_content(
+                            model=model_name, contents=content, config=batch_config
+                        )
 
-                # Use the utility function to convert images
-                image_tensors, mask_tensors = process_images_for_comfy(
-                    image_data, response_key="data", field_name="b64_json"
-                )
+                        # Process response to extract generated images and text
+                        batch_images_bytes = []
+                        response_text = ""
+                        finish_reason = None
 
-                # Get the actual resolution of the first image for information
-                if isinstance(image_tensors, torch.Tensor) and image_tensors.dim() >= 3:
+                        # Check for finish reason which might explain why no images were generated
+                        if hasattr(response, 'candidates') and response.candidates:
+                            for candidate in response.candidates:
+                                # Check finish reason if available
+                                if hasattr(candidate, 'finish_reason'):
+                                    finish_reason = candidate.finish_reason
+                                    logger.info(f"Finish reason: {finish_reason}")
+                                
+                                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                                    for part in candidate.content.parts:
+                                        # Extract text
+                                        if hasattr(part, 'text') and part.text:
+                                            response_text += part.text + "\n"
+
+                                        # Extract image data
+                                        if hasattr(part, 'inline_data') and part.inline_data:
+                                            try:
+                                                image_binary = part.inline_data.data
+                                                batch_images_bytes.append(image_binary)
+                                            except Exception as img_error:
+                                                logger.error(
+                                                    f"Error extracting image from response: {str(img_error)}"
+                                                )
+
+                        # Accumulate images and text (don't process them yet)
+                        if batch_images_bytes:
+                            all_generated_images_bytes.extend(batch_images_bytes)
+                            status_text += (
+                                f"Batch {i+1} (seed {current_seed}): Generated {len(batch_images_bytes)} images\n"
+                            )
+                            if response_text.strip():
+                                all_generated_text.append(f"Batch {i+1}:\n{response_text.strip()}")
+                        else:
+                            # Include finish reason in status if available
+                            finish_info = f" (Reason: {finish_reason})" if finish_reason else ""
+                            status_text += f"Batch {i+1} (seed {current_seed}): No images found in response{finish_info}\n"
+                            
+                            # Add more specific guidance for IMAGE_SAFETY or similar issues
+                            if finish_reason and "SAFETY" in str(finish_reason).upper():
+                                status_text += "The request was blocked for safety reasons. Try modifying your prompt to avoid content that might trigger safety filters.\n"
+                            
+                            # Include any text response from the model that might explain the issue
+                            if response_text.strip():
+                                status_text += f"Model message: {response_text.strip()}\n"
+                                all_generated_text.append(f"Batch {i+1} (no image):\n{response_text.strip()}")
+
+                    except Exception as batch_error:
+                        status_text += f"Batch {i+1} error: {str(batch_error)}\n"
+
+            # Process all accumulated images into tensors for ComfyUI only after all steps/batches are complete
+            if all_generated_images_bytes:
+                logger.info(f"Processing {len(all_generated_images_bytes)} accumulated images")
+                
+                try:
+                    # Convert bytes to PIL images
+                    pil_images = []
+                    for img_bytes in all_generated_images_bytes:
+                        try:
+                            pil_img = Image.open(BytesIO(img_bytes)).convert('RGB')
+                            pil_images.append(pil_img)
+                        except Exception as img_error:
+                            logger.error(f"Error converting image bytes to PIL: {str(img_error)}")
+                    
+                    if not pil_images:
+                        raise ValueError("Failed to convert any image bytes to PIL images")
+                    
+                    # Ensure all images have the same dimensions
+                    first_width, first_height = pil_images[0].size
+                    for i in range(1, len(pil_images)):
+                        if pil_images[i].size != (first_width, first_height):
+                            pil_images[i] = pil_images[i].resize((first_width, first_height), Image.LANCZOS)
+                    
+                    # Convert PIL images to tensor format
+                    tensors = []
+                    for pil_img in pil_images:
+                        img_array = np.array(pil_img).astype(np.float32) / 255.0
+                        img_tensor = torch.from_numpy(img_array)[None,]  # Add batch dimension
+                        tensors.append(img_tensor)
+                    
+                    # Concatenate all image tensors into one batch
+                    image_tensors = torch.cat(tensors, dim=0)
+                    
+                    # Get the actual resolution for reporting
                     height, width = image_tensors.shape[1:3]
                     resolution_info = f"Resolution: {width}x{height}"
-                else:
-                    resolution_info = ""
-
-                result_text = (
-                    f"Successfully generated {len(all_generated_images)} images using"
-                    f" {model_name}.\n"
+                    
+                    # Format the result text
+                    if sequential_generation:
+                        result_text = f"Successfully generated {len(all_generated_images_bytes)} sequential images using {model_name}.\n"
+                        result_text += f"Initial prompt: {prompt}\n"
+                        result_text += f"Starting seed: {seed}\n"
+                        if resolution_info:
+                            result_text += f"{resolution_info}\n"
+                        
+                        # Add text for each step
+                        if all_generated_text:
+                            result_text += "\n----- Generated Sequence -----\n"
+                            result_text += "\n\n".join(all_generated_text)
+                    else:
+                        result_text = f"Successfully generated {len(all_generated_images_bytes)} images using {model_name}.\n"
+                        result_text += f"Prompt: {prompt}\n"
+                        result_text += f"Starting seed: {seed}\n"
+                        if resolution_info:
+                            result_text += f"{resolution_info}\n"
+                        
+                        # Add text for each batch
+                        if all_generated_text:
+                            result_text += "\n----- Generated Text -----\n"
+                            result_text += "\n\n".join(all_generated_text)
+                    
+                    # Add status information at the end
+                    result_text += f"\n\n----- Generation Status -----\n{status_text}"
+                    
+                    # Return the final accumulated results
+                    return result_text, image_tensors
+                    
+                except Exception as processing_error:
+                    error_msg = f"Error processing accumulated images: {str(processing_error)}"
+                    logger.error(error_msg, exc_info=True)
+                    return (f"{error_msg}\n\nRaw status:\n{status_text}", create_placeholder_image())
+            else:
+                # No images were generated successfully
+                return (
+                    f"No images were generated with {model_name}. Details:\n{status_text}",
+                    create_placeholder_image(),
                 )
-                result_text += f"Prompt: {prompt}\n"
-                result_text += f"Starting seed: {seed}\n"
-                if resolution_info:
-                    result_text += f"{resolution_info}\n"
-
-                return result_text, image_tensors
-
-            # No images were generated successfully
-            return (
-                f"No images were generated with {model_name}. Details:\n{status_text}",
-                create_placeholder_image(),
-            )
 
         except Exception as e:
             error_msg = f"Error in image generation: {str(e)}"
