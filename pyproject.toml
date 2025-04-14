@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-if_gemini"
-description = "Enjoy the latest GEMINI V2 API for ComfyUI generate images, transcribe audio, sumarize videos. Making a separate implemetation of my old IF_AI tools for easy installation"
-version = "0.1.2"
+description = "Enjoy the latest GEMINI V2 API for ComfyUI to generate images, transcribe audio and summarize videos. Making a separate implementation of my old IF_AI tools for easy installation"
+version = "0.1.3"
 license = { file = "MIT License" }
 dependencies = [
     # Core dependencies
