@@ -1,12 +1,12 @@
-from .gemini_node import GeminiNode
+from .gemini_node import IFGeminiAdvanced
 from .api_routes import *  # Import API routes
 
 NODE_CLASS_MAPPINGS = {
-    "IFGeminiNode": GeminiNode
+    "IFGeminiNode": IFGeminiAdvanced
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "IFGeminiNode": "IF LLM Gemini AI"
+    "IFGeminiNode": "IF Gemini"
 }
 
 # Path to web directory relative to this file

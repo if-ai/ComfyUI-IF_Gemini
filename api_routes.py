@@ -190,10 +190,13 @@ try:
                 
                 # Always include these models even if API doesn't return them
                 default_models = [
+                    "gemini-2.5-flash",
+                    "gemini-2.5-pro",
+                    "gemini-2.5-flash-002",
+                    "gemini-2.5-flash-image-preview",
                     "gemini-2.0-flash-exp",
                     "gemini-2.0-pro",
-                    "gemini-2.0-flash",
-                    "gemini-2.0-flash-exp-image-generation"
+                    "gemini-2.0-flash"
                 ]
                 
                 # Add default models if not in the list
@@ -223,8 +226,8 @@ try:
                 return web.json_response({
                     "status": "error",
                     "message": error_detail,
-                    "models": ["gemini-2.0-flash-exp", "gemini-2.0-pro", "gemini-2.0-flash", 
-                               "gemini-2.0-flash-exp-image-generation"]
+                    "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-002",
+                               "gemini-2.5-flash-image-preview"]
                 })
                 
         except Exception as e:
@@ -232,7 +235,7 @@ try:
             return web.json_response({
                 "status": "error", 
                 "message": f"Error in server: {str(e)}",
-                "models": ["gemini-2.0-flash-exp", "gemini-2.0-pro"]  # Default fallback
+                "models": ["gemini-2.5-flash", "gemini-2.5-pro"]  # Default fallback
             })
 
     @PromptServer.instance.routes.post("/gemini/get_models")
@@ -304,10 +307,10 @@ try:
             if not api_key:
                 # Return default models if no API key found
                 return web.json_response([
-                    "gemini-2.0-flash-exp",
-                    "gemini-2.0-pro",
-                    "gemini-2.0-flash",
-                    "gemini-2.0-flash-exp-image-generation"
+                    "gemini-2.5-flash",
+                    "gemini-2.5-pro",
+                    "gemini-2.5-flash-002",
+                    "gemini-2.5-flash-image-preview"
                 ])
             
             # Use the get_available_models function from gemini_node.py
@@ -321,10 +324,10 @@ try:
         except Exception as e:
             logger.error(f"Error in get_models_for_ui: {str(e)}")
             return web.json_response([
-                "gemini-2.0-flash-exp",
-                "gemini-2.0-pro",
-                "gemini-2.0-flash",
-                "gemini-2.0-flash-exp-image-generation"
+                "gemini-2.5-flash",
+                "gemini-2.5-pro",
+                "gemini-2.5-flash-002",
+                "gemini-2.5-flash-image-preview"
             ])
 
 except (ImportError, AttributeError):

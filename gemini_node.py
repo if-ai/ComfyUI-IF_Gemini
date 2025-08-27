@@ -76,7 +76,7 @@ def generate_consistent_seed(input_seed=0, use_random=False):
     return hash_int
 
 
-class GeminiNode:
+class IFGeminiAdvanced:
     def __init__(self):
         self.api_key = ""
         self.chat_history = ChatHistory()
@@ -173,12 +173,15 @@ class GeminiNode:
                 ),
                 "model_name": (
                     [
+                        "gemini-2.5-flash",
+                        "gemini-2.5-pro",
+                        "gemini-2.5-flash-002",
+                        "gemini-2.5-flash-image-preview",
                         "gemini-2.0-flash-exp",
                         "gemini-2.0-pro",
                         "gemini-2.0-flash",
-                        "gemini-2.0-flash-exp-image-generation",
                     ],
-                    {"default": "gemini-2.0-flash-exp"},
+                    {"default": "gemini-2.5-flash"},
                 ),
                 "temperature": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.01}),
             },
@@ -227,7 +230,7 @@ class GeminiNode:
         structured_output=False,
         aspect_ratio="none",
         use_random_seed=False,
-        model_name="gemini-2.0-flash-exp",
+        model_name="gemini-2.5-flash",
         sequential_generation=False,
         api_call_delay=1.0,
     ):
@@ -495,8 +498,13 @@ class GeminiNode:
             from google.genai import types
 
             # Ensure we're using an image generation capable model
-            if "image-generation" not in model_name:
-                model_name = "gemini-2.0-flash-exp-image-generation"
+            image_capable_models = [
+                "gemini-2.5-flash-image-preview",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-002"
+            ]
+            if model_name not in image_capable_models:
+                model_name = "gemini-2.5-flash-image-preview"
                 logger.info(f"Changed to image generation model: {model_name}")
 
             # Use the API key based on the source specified
@@ -954,10 +962,13 @@ def get_available_models(api_key):
         
         # Ensure we always have the default models available
         default_models = [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash-002",
+            "gemini-2.5-flash-image-preview",
             "gemini-2.0-flash-exp",
             "gemini-2.0-pro",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-exp-image-generation"
+            "gemini-2.0-flash"
         ]
         
         for model in default_models:
@@ -970,10 +981,13 @@ def get_available_models(api_key):
         logger.error(f"Error retrieving models: {str(e)}")
         # Return default models on error
         return [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash-002",
+            "gemini-2.5-flash-image-preview",
             "gemini-2.0-flash-exp",
             "gemini-2.0-pro",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-exp-image-generation"
+            "gemini-2.0-flash"
         ]
 
 def check_gemini_api_key(api_key):

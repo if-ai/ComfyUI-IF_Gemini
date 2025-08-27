@@ -2,7 +2,7 @@
 import { app } from "/scripts/app.js";
 
 app.registerExtension({
-    name: "Comfy.GeminiNode",
+    name: "Comfy.IFGeminiNode",
     
     async setup() {
         // Wait for ComfyUI to fully initialize
@@ -15,8 +15,8 @@ app.registerExtension({
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        // Only apply to GeminiNode
-        if (nodeData.name === "GeminiNode") {
+        // Only apply to our IF Gemini Node
+        if (nodeData.name === "IFGeminiNode") {
             const originalOnNodeCreated = nodeType.prototype.onNodeCreated;
             
             // Enhance the node creation process
@@ -178,16 +178,33 @@ app.registerExtension({
                         }
                     };
                 }
+
+                // Listen for changes to operation mode to filter models
+                const operationModeWidget = this.widgets.find(w => w.name === "operation_mode");
+                if (operationModeWidget) {
+                    const originalOpCallback = operationModeWidget.callback;
+                    operationModeWidget.callback = (v) => {
+                        if (originalOpCallback) {
+                            originalOpCallback.call(this, v);
+                        }
+                        // Update models when operation mode changes
+                        setTimeout(() => {
+                            this.updateGeminiModels();
+                        }, 100);
+                    };
+                }
             };
 
-            // Function to update Gemini models
+            // Function to update Gemini models based on operation mode
             nodeType.prototype.updateGeminiModels = function() {
                 if (!this.modelWidget) {
                     return;
                 }
 
                 const externalApiKeyWidget = this.widgets.find(w => w.name === "external_api_key");
+                const operationModeWidget = this.widgets.find(w => w.name === "operation_mode");
                 const apiKey = externalApiKeyWidget ? externalApiKeyWidget.value : "";
+                const operationMode = operationModeWidget ? operationModeWidget.value : "analysis";
 
                 // Get models from the backend
                 fetch("/gemini/get_models", {
@@ -196,20 +213,26 @@ app.registerExtension({
                     body: JSON.stringify({ external_api_key: apiKey })
                 })
                 .then(response => response.json())
-                .then(models => {
-                    if (models && models.length > 0) {
+                .then(allModels => {
+                    if (allModels && allModels.length > 0) {
+                        // Filter models based on operation mode
+                        let filteredModels = this.filterModelsByOperation(allModels, operationMode);
+                        
                         // Store current model selection
                         const currentModel = this.modelWidget.value;
                         
                         // Update the model widget options
-                        this.modelWidget.options.values = models;
+                        this.modelWidget.options.values = filteredModels;
                         
-                        // Try to maintain the current model if it exists in new list
-                        if (models.includes(currentModel)) {
+                        // Try to maintain the current model if it exists in filtered list
+                        if (filteredModels.includes(currentModel)) {
                             this.modelWidget.value = currentModel;
                         } else {
-                            // Default to first model in the list
-                            this.modelWidget.value = models[0];
+                            // Default to gemini-2.5-flash or first model in the list
+                            const defaultModel = filteredModels.includes("gemini-2.5-flash") 
+                                ? "gemini-2.5-flash" 
+                                : filteredModels[0];
+                            this.modelWidget.value = defaultModel;
                         }
                         
                         // Trigger a property change and update the UI
@@ -221,7 +244,7 @@ app.registerExtension({
                         // Add models info to status widget
                         const statusWidget = this.widgets.find(w => w.name === "api_key_status");
                         if (statusWidget && statusWidget.value && statusWidget.value.includes("✅")) {
-                            statusWidget.value += ` (${models.length} models available)`;
+                            statusWidget.value = `✅ API key is valid (${filteredModels.length}/${allModels.length} models for ${operationMode})`;
                         }
                         
                         this.setDirtyCanvas(true, true);
@@ -230,6 +253,35 @@ app.registerExtension({
                 .catch(error => {
                     console.error("Error updating Gemini models:", error);
                 });
+            };
+
+            // Function to filter models based on operation mode
+            nodeType.prototype.filterModelsByOperation = function(allModels, operationMode) {
+                const imageCapableModels = [
+                    "gemini-2.5-flash-image-preview",
+                    "gemini-2.5-flash", 
+                    "gemini-2.5-flash-002"
+                ];
+                
+                const textModels = allModels.filter(model => !model.includes("image"));
+                const multimodalModels = allModels; // All models support multimodal
+                
+                switch(operationMode) {
+                    case "generate_images":
+                        // For image generation, only show image-capable models
+                        return allModels.filter(model => 
+                            imageCapableModels.some(capable => model.includes(capable.split('-').slice(0, -1).join('-')) || model === capable)
+                        );
+                    
+                    case "analysis":
+                    case "generate_text": 
+                        // For text analysis, show all models but prioritize text-focused ones
+                        return allModels;
+                    
+                    default:
+                        // Default: show all available models
+                        return allModels;
+                }
             };
 
             // Add custom drawing to show generated text below the node
