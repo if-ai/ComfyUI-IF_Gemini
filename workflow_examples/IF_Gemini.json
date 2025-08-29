@@ -1,8 +1,8 @@
 {
   "id": "8dda1723-ca90-4f72-b276-c1e573f6e189",
   "revision": 0,
-  "last_node_id": 47,
-  "last_link_id": 92,
+  "last_node_id": 51,
+  "last_link_id": 103,
   "nodes": [
     {
       "id": 13,
@@ -16,13 +16,13 @@
         270
       ],
       "flags": {},
-      "order": 11,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 88
+          "link": 97
         }
       ],
       "outputs": [],
@@ -47,13 +47,13 @@
         261.448486328125
       ],
       "flags": {},
-      "order": 9,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
           "name": "source",
           "type": "*",
-          "link": 86
+          "link": 98
         }
       ],
       "outputs": [],
@@ -74,7 +74,7 @@
         82
       ],
       "flags": {},
-      "order": 3,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -101,47 +101,6 @@
       ]
     },
     {
-      "id": 11,
-      "type": "LoadImage",
-      "pos": [
-        1528.7364501953125,
-        456.7873840332031
-      ],
-      "size": [
-        315,
-        314.00006103515625
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "slot_index": 0,
-          "links": [
-            13,
-            82
-          ]
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoadImage",
-        "cnr_id": "comfy-core",
-        "ver": "0.3.26"
-      },
-      "widgets_values": [
-        "White-5.png",
-        "image"
-      ]
-    },
-    {
       "id": 41,
       "type": "ImageScaleToTotalPixels",
       "pos": [
@@ -153,7 +112,7 @@
         82
       ],
       "flags": {},
-      "order": 4,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -180,46 +139,6 @@
       ]
     },
     {
-      "id": 4,
-      "type": "LoadImage",
-      "pos": [
-        1186.467529296875,
-        457.957275390625
-      ],
-      "size": [
-        315,
-        314
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "slot_index": 0,
-          "links": [
-            83
-          ]
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoadImage",
-        "cnr_id": "comfy-core",
-        "ver": "0.3.26"
-      },
-      "widgets_values": [
-        "7898b660257502a35f9cd43e4bf17372 (1).jpg",
-        "image"
-      ]
-    },
-    {
       "id": 3,
       "type": "ImageBatch",
       "pos": [
@@ -231,7 +150,7 @@
         46
       ],
       "flags": {},
-      "order": 6,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -263,48 +182,6 @@
       "widgets_values": []
     },
     {
-      "id": 45,
-      "type": "ImageBatch",
-      "pos": [
-        1658.308837890625,
-        1036.050048828125
-      ],
-      "size": [
-        210,
-        46
-      ],
-      "flags": {},
-      "order": 7,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image1",
-          "type": "IMAGE",
-          "link": 89
-        },
-        {
-          "name": "image2",
-          "type": "IMAGE",
-          "link": 92
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "slot_index": 0,
-          "links": [
-            90
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "ImageBatch",
-        "cnr_id": "comfy-core",
-        "ver": "0.3.26"
-      }
-    },
-    {
       "id": 47,
       "type": "LoadImage",
       "pos": [
@@ -316,7 +193,7 @@
         314.00006103515625
       ],
       "flags": {},
-      "order": 2,
+      "order": 0,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -383,25 +260,240 @@
       ]
     },
     {
-      "id": 43,
-      "type": "IFGeminiNode",
+      "id": 6,
+      "type": "PreviewImage",
       "pos": [
-        2256.37646484375,
-        478.96368408203125
+        2727.62890625,
+        708.2498779296875
       ],
       "size": [
-        350.32647705078125,
+        898.0060424804688,
+        802.2527465820312
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 99
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 51,
+      "type": "PreviewAny",
+      "pos": [
+        2252.999755859375,
+        1288.3985595703125
+      ],
+      "size": [
+        418.6957702636719,
+        197.78778076171875
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 101
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 48,
+      "type": "IFTaskPromptManager",
+      "pos": [
+        1892.93115234375,
+        1031.225830078125
+      ],
+      "size": [
+        327.74737548828125,
+        171.90171813964844
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            101,
+            103
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IFTaskPromptManager"
+      },
+      "widgets_values": [
+        "1 Background & Outfit Replace",
+        "Analyze the provided images and follow the task instructions above.",
+        "after",
+        "\n\n"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoadImage",
+      "pos": [
+        1186.467529296875,
+        457.957275390625
+      ],
+      "size": [
+        315,
+        314
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            83
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": [
+        "1.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "LoadImage",
+      "pos": [
+        1528.7364501953125,
+        456.7873840332031
+      ],
+      "size": [
+        315,
+        314.00006103515625
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            13,
+            82
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": [
+        "Floral Bustier Midriff Waist Shaper Dress.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 45,
+      "type": "ImageBatch",
+      "pos": [
+        1644.2593994140625,
+        1044.077880859375
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image1",
+          "type": "IMAGE",
+          "link": 89
+        },
+        {
+          "name": "image2",
+          "type": "IMAGE",
+          "link": 92
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            96
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageBatch",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 49,
+      "type": "IFGeminiNode",
+      "pos": [
+        2258.181640625,
+        524.336669921875
+      ],
+      "size": [
+        400,
         678
       ],
       "flags": {},
-      "order": 8,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
           "name": "images",
           "shape": 7,
           "type": "IMAGE",
-          "link": 90
+          "link": 96
         },
         {
           "name": "video",
@@ -414,6 +506,14 @@
           "shape": 7,
           "type": "AUDIO",
           "link": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 103
         }
       ],
       "outputs": [
@@ -421,15 +521,15 @@
           "name": "text",
           "type": "STRING",
           "links": [
-            86
+            98
           ]
         },
         {
           "name": "image",
           "type": "IMAGE",
           "links": [
-            87,
-            88
+            97,
+            99
           ]
         }
       ],
@@ -439,15 +539,14 @@
       "widgets_values": [
         "Combine maintaining the pose of the subject, the woman from image_1, one and place the logo on image_2 on heswimsuitit over the chest are, making sure it is perfectly wrapped as the underlying ssurfacee and use the background using the reference from image_3 make sure the background and the reference is perfectly integrated as the perspective might need resizing and relight the subject to fit on the background environment \n",
         "generate_images",
-        "gemini-2.5-flash",
+        "gemini-2.5-flash-image-preview",
         0.8,
-        3500194600,
+        384720446,
         "randomize",
-        null,
+        false,
         4,
         "none",
         "",
-        false,
         false,
         false,
         false,
@@ -458,33 +557,41 @@
       ]
     },
     {
-      "id": 6,
-      "type": "PreviewImage",
+      "id": 50,
+      "type": "LoadImageOutput",
       "pos": [
-        2727.62890625,
-        708.2498779296875
+        1204.553466796875,
+        1092.46337890625
       ],
       "size": [
-        898.0060424804688,
-        802.2527465820312
+        274.080078125,
+        362.00006103515625
       ],
       "flags": {},
-      "order": 10,
+      "order": 4,
       "mode": 0,
-      "inputs": [
+      "inputs": [],
+      "outputs": [
         {
-          "name": "images",
+          "name": "IMAGE",
           "type": "IMAGE",
-          "link": 87
+          "links": null
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
         }
       ],
-      "outputs": [],
       "properties": {
-        "Node name for S&R": "PreviewImage",
-        "cnr_id": "comfy-core",
-        "ver": "0.3.26"
+        "Node name for S&R": "LoadImageOutput"
       },
-      "widgets_values": []
+      "widgets_values": [
+        "gemini__00031_.png [output]",
+        true,
+        "refresh",
+        "image"
+      ]
     }
   ],
   "links": [
@@ -521,42 +628,10 @@
       "IMAGE"
     ],
     [
-      86,
-      43,
-      0,
-      39,
-      0,
-      "*"
-    ],
-    [
-      87,
-      43,
-      1,
-      6,
-      0,
-      "IMAGE"
-    ],
-    [
-      88,
-      43,
-      1,
-      13,
-      0,
-      "IMAGE"
-    ],
-    [
       89,
       3,
       0,
       45,
-      0,
-      "IMAGE"
-    ],
-    [
-      90,
-      45,
-      0,
-      43,
       0,
       "IMAGE"
     ],
@@ -575,12 +650,60 @@
       45,
       1,
       "IMAGE"
+    ],
+    [
+      96,
+      45,
+      0,
+      49,
+      0,
+      "IMAGE"
+    ],
+    [
+      97,
+      49,
+      1,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      98,
+      49,
+      0,
+      39,
+      0,
+      "*"
+    ],
+    [
+      99,
+      49,
+      1,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      101,
+      48,
+      0,
+      51,
+      0,
+      "*"
+    ],
+    [
+      103,
+      48,
+      0,
+      49,
+      3,
+      "STRING"
     ]
   ],
   "groups": [
     {
       "id": 1,
-      "title": "1 Place Your LOGO on The Product and/or Place the talent and the product",
+      "title": "MULTI_BANANA_TASKS",
       "bounding": [
         1176.467529296875,
         241.34707641601562,
@@ -595,16 +718,16 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.6588450000000171,
+      "scale": 0.6588450000000193,
       "offset": [
-        -957.9684234521786,
-        -190.06018123548722
+        -982.8559239055991,
+        -220.52988620694174
       ]
     },
+    "frontendVersion": "1.25.11",
     "ue_links": [],
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
-    "frontendVersion": "1.23.4",
     "VHS_MetadataImage": true,
     "VHS_KeepIntermediate": true
   },
