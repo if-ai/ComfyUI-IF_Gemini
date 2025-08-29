@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-if_gemini"
-description = "Enjoy the latest GEMINI V2 API for ComfyUI to generate images, transcribe audio and summarize videos. Making a separate implementation of my old IF_AI tools for easy installation"
-version = "0.1.4"
+description = "nano-banana GEMINI V2 API for ComfyUI to generate images, transcribe audio and summarize videos. Making a separate implementation of my old IF_AI tools for easy installation"
+version = "0.1.5"
 license = { file = "MIT License" }
 dependencies = [
     # Core dependencies
@@ -26,3 +26,4 @@ Repository = "https://github.com/if-ai/ComfyUI-IF_Gemini"
 PublisherId = "impactframes"
 DisplayName = "IF_Gemini"
 Icon = "https://impactframes.ai/System/Icons/48x48/if.png" 
+
