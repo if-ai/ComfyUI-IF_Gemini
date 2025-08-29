@@ -138,3 +138,80 @@ def get_api_key(env_var_name, service_name):
     else:
         logger.debug(f"No .env files found in expected locations. This is okay if you're using external API key or system environment variables.")
     return ""
+
+def get_base_url():
+    """
+    Get custom base URL for Gemini API from environment variables
+    
+    Returns:
+        Base URL string or None if not configured
+    """
+    base_url = os.environ.get("GEMINI_BASE_URL", "")
+    
+    if base_url:
+        logger.info(f"Using custom Gemini base URL: {base_url}")
+        return base_url
+    
+    # Check shell config files for base URL
+    home_dir = os.path.expanduser("~")
+    shell_config_files = [
+        os.path.join(home_dir, ".zshrc"),
+        os.path.join(home_dir, ".bashrc"),
+        os.path.join(home_dir, ".bash_profile")
+    ]
+    
+    for config_file in shell_config_files:
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    content = f.read()
+                    import re
+                    patterns = [
+                        r'export\s+GEMINI_BASE_URL=[\'\"]?([^\s\'\"]+)[\'\"]?',
+                        r'GEMINI_BASE_URL=[\'\"]?([^\s\'\"]+)[\'\"]?'
+                    ]
+                    for pattern in patterns:
+                        matches = re.findall(pattern, content)
+                        if matches:
+                            base_url = matches[0]
+                            logger.info(f"Found custom Gemini base URL in {os.path.basename(config_file)}: {base_url}")
+                            os.environ["GEMINI_BASE_URL"] = base_url
+                            return base_url
+            except Exception as e:
+                logger.error(f"Error reading {config_file}: {str(e)}")
+    
+    # Check .env files if dotenv is available
+    if DOTENV_AVAILABLE:
+        possible_locations = []
+        
+        # Script directory (custom node directory)
+        script_dir = Path(__file__).parent
+        possible_locations.append((script_dir / ".env", "custom node directory"))
+        
+        # One level up (custom_nodes/ComfyUI-IF_Gemini)
+        parent_dir = script_dir.parent
+        possible_locations.append((parent_dir / ".env", "node package directory"))
+        
+        # ComfyUI root directory
+        try:
+            comfy_root = Path.cwd()
+            while comfy_root.name and comfy_root.name != "ComfyUI" and comfy_root.parent != comfy_root:
+                comfy_root = comfy_root.parent
+            possible_locations.append((comfy_root / ".env", "ComfyUI root directory"))
+        except Exception as e:
+            logger.warning(f"Error determining ComfyUI root directory: {e}")
+        
+        for env_path, location_name in possible_locations:
+            if env_path.exists():
+                try:
+                    dotenv.load_dotenv(env_path)
+                    base_url = os.environ.get("GEMINI_BASE_URL", "")
+                    if base_url:
+                        logger.info(f"Loaded custom Gemini base URL from .env file in {location_name}: {base_url}")
+                        return base_url
+                except Exception as e:
+                    logger.error(f"Error loading .env from {location_name}: {str(e)}")
+    
+    # No custom base URL configured
+    logger.debug("No custom Gemini base URL configured, will use default")
+    return None

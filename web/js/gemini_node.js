@@ -88,13 +88,9 @@ app.registerExtension({
                 // Rename the toggle for display purposes
                 sequentialToggle.name = "sequential_generation";
                 
-                // Reposition the toggle widget to desired position
-                const currentToggleIndex = this.widgets.indexOf(sequentialToggle);
-                if (currentToggleIndex !== -1 && currentToggleIndex !== insertIndex) {
-                    const widgetToMove = this.widgets.splice(currentToggleIndex, 1)[0];
-                    this.widgets.splice(insertIndex, 0, widgetToMove);
-                    console.log(`GeminiNode ${this.id}: Moved sequential toggle to index ${insertIndex}`);
-                }
+                // No need to reposition since Python order now matches UI order
+                // The widget is already in the correct position
+                console.log(`GeminiNode ${this.id}: Sequential toggle is in correct position`)
 
                 // Add update models button
                 const updateModelsBtn = this.addWidget("button", "Update Models List", null, () => {

@@ -168,14 +168,15 @@ try:
             
             try:
                 # Log API key information (first few characters only for security)
-                masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
+                masked_key = api_key[:5] + "..." if len(api_key) > 5 else "****"
                 logger.info(f"Using Gemini API key ({masked_key}) from {source} to fetch models")
                 
                 # Get models from the API using Client approach
                 from google import genai
+                from .gemini_node import create_gemini_client
                 
-                # Use client instead of configure
-                client = genai.Client(api_key=api_key)
+                # Use client with configurable base URL
+                client = create_gemini_client(api_key)
                 
                 # List available models - use the correct method for newer SDK versions
                 models = client.models.list()

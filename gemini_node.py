@@ -22,7 +22,7 @@ import time
 import uuid
 import hashlib
 
-from .env_utils import get_api_key
+from .env_utils import get_api_key, get_base_url
 from .utils import ChatHistory
 from .image_utils import (
     create_placeholder_image,
@@ -34,6 +34,13 @@ from .response_utils import prepare_response
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Suppress verbose HTTP logging from the Google API client
+# This prevents API keys from being exposed in HTTP request logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("google.genai").setLevel(logging.WARNING)
+logging.getLogger("google.auth").setLevel(logging.WARNING)
 
 
 def generate_consistent_seed(input_seed=0, use_random=False):
@@ -74,6 +81,41 @@ def generate_consistent_seed(input_seed=0, use_random=False):
     
     logger.info(f"Generated random seed: {hash_int}")
     return hash_int
+
+
+def create_gemini_client(api_key):
+    """
+    Create Gemini client with configurable base URL
+    
+    Args:
+        api_key: The API key to use for authentication
+        
+    Returns:
+        Configured Gemini client
+    """
+    from google import genai
+    from google.genai import types
+    
+    # Mask the API key for logging
+    masked_key = api_key[:5] + "..." if len(api_key) > 5 else "****"
+    
+    base_url = get_base_url()
+    
+    if base_url:
+        # Use custom base URL if provided
+        logger.info(f"Creating Gemini client with custom base URL: {base_url} (API key: {masked_key})")
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                base_url=base_url
+            )
+        )
+    else:
+        # Use default endpoint
+        logger.debug(f"Creating Gemini client with default endpoint (API key: {masked_key})")
+        client = genai.Client(api_key=api_key)
+    
+    return client
 
 
 class IFGeminiAdvanced:
@@ -143,7 +185,7 @@ class IFGeminiAdvanced:
         
         # Log key information (masked for security)
         if self.api_key:
-            masked_key = self.api_key[:4] + "..." + self.api_key[-4:] if len(self.api_key) > 8 else "****"
+            masked_key = self.api_key[:5] + "..." if len(self.api_key) > 5 else "****"
             logger.info(f"Using Gemini API key ({masked_key}) from {self.api_key_source}")
         
         # Check for Google Generative AI SDK
@@ -190,6 +232,7 @@ class IFGeminiAdvanced:
                 "video": ("IMAGE",),
                 "audio": ("AUDIO",),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
+                "sequential_generation": ("BOOLEAN", {"default": False}),
                 "batch_count": ("INT", {"default": 4, "min": 1, "max": 20}),
                 "aspect_ratio": (
                     ["none", "1:1", "16:9", "9:16", "4:3", "3:4", "5:4", "4:5"],
@@ -199,7 +242,6 @@ class IFGeminiAdvanced:
                 "chat_mode": ("BOOLEAN", {"default": False}),
                 "clear_history": ("BOOLEAN", {"default": False}),
                 "structured_output": ("BOOLEAN", {"default": False}),
-                "sequential_generation": ("BOOLEAN", {"default": False}),
                 "max_images": ("INT", {"default": 6, "min": 1, "max": 16}),
                 "max_output_tokens": ("INT", {"default": 8192, "min": 1, "max": 32768}),
                 "use_random_seed": ("BOOLEAN", {"default": False}),
@@ -216,22 +258,22 @@ class IFGeminiAdvanced:
         self,
         prompt,
         operation_mode="analysis",
-        chat_mode=False,
-        clear_history=False,
+        model_name="gemini-2.5-flash",
+        temperature=0.4,
         images=None,
         video=None,
         audio=None,
-        external_api_key="",
-        max_images=6,
-        batch_count=1,
         seed=0,
-        max_output_tokens=8192,
-        temperature=0.4,
-        structured_output=False,
-        aspect_ratio="none",
-        use_random_seed=False,
-        model_name="gemini-2.5-flash",
         sequential_generation=False,
+        batch_count=1,
+        aspect_ratio="none",
+        external_api_key="",
+        chat_mode=False,
+        clear_history=False,
+        structured_output=False,
+        max_images=6,
+        max_output_tokens=8192,
+        use_random_seed=False,
         api_call_delay=1.0,
     ):
         """Generate content using Gemini model with various input types."""
@@ -313,7 +355,7 @@ class IFGeminiAdvanced:
 
         # Initialize the API client with the API key
         try:
-            client = genai.Client(api_key=api_key)
+            client = create_gemini_client(api_key)
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error initializing Gemini client: {error_msg}", exc_info=True)
@@ -543,7 +585,7 @@ class IFGeminiAdvanced:
 
             # Create Gemini client
             try:
-                client = genai.Client(api_key=api_key)
+                client = create_gemini_client(api_key)
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"Error initializing Gemini client for image generation: {error_msg}", exc_info=True)
@@ -947,7 +989,7 @@ def get_available_models(api_key):
         from google import genai
         
         # Initialize client with the provided API key
-        client = genai.Client(api_key=api_key)
+        client = create_gemini_client(api_key)
         
         # List available models
         models_response = client.models.list()
@@ -996,7 +1038,7 @@ def check_gemini_api_key(api_key):
         from google import genai
         
         # Initialize client with the provided API key
-        client = genai.Client(api_key=api_key)
+        client = create_gemini_client(api_key)
         
         # Try to list models as a simple API test
         models = client.models.list()
