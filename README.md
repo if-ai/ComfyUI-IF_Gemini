@@ -11,6 +11,16 @@ Enjoy Google Gemini API for ComfyUI generate images, transcribe audio, sumarize 
 - **Chat Mode**: Maintain conversation history for interactive sessions
 - **Batch Processing**: Generate multiple outputs with a single prompt
 
+- ** URL PROXY **
+  Users can now configure a custom Gemini API endpoint in three ways:
+
+  1. Environment variable:
+  export GEMINI_BASE_URL='https://your-proxy.com/gemini/v1'
+  2. In .env file:
+  GEMINI_BASE_URL=https://your-proxy.com/gemini/v1
+  3. In shell config (.bashrc/.zshrc):
+  export GEMINI_BASE_URL='https://your-proxy.com/gemini/v1'
+
 ## Installation
 
 1. Clone this repository into your ComfyUI custom nodes folder:
