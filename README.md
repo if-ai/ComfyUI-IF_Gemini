@@ -1,6 +1,7 @@
 # ComfyUI-IF_Gemini
 Enjoy Google Gemini API for ComfyUI generate images, transcribe audio, sumarize videos. Making a separate implemetation of my old IF_AI tools for easy installation
 <img width="2559" height="1232" alt="image" src="https://github.com/user-attachments/assets/010a3937-bd79-4577-a3b4-fdf0d6f2762d" />
+<img width="1920" height="1075" alt="image" src="https://github.com/user-attachments/assets/a3fb04fd-ace6-4208-8df2-6887501eb879" />
 
 ## Features
 
@@ -130,5 +131,6 @@ If you find this tool useful, please consider supporting my work by:
 Thank You!
 
 <img src="https://count.getloli.com/get/@IFGemeini_comfy?theme=moebooru" alt=":IFGemini_comfy" /> 
+
 
 
