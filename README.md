@@ -1,5 +1,7 @@
 # ComfyUI-IF_Gemini
 Enjoy Google Gemini API for ComfyUI generate images, transcribe audio, sumarize videos. Making a separate implemetation of my old IF_AI tools for easy installation
+<img width="2559" height="1232" alt="image" src="https://github.com/user-attachments/assets/010a3937-bd79-4577-a3b4-fdf0d6f2762d" />
+<img width="1920" height="1075" alt="image" src="https://github.com/user-attachments/assets/a3fb04fd-ace6-4208-8df2-6887501eb879" />
 
 ## Features
 
@@ -20,6 +22,34 @@ Enjoy Google Gemini API for ComfyUI generate images, transcribe audio, sumarize 
   GEMINI_BASE_URL=https://your-proxy.com/gemini/v1
   3. In shell config (.bashrc/.zshrc):
   export GEMINI_BASE_URL='https://your-proxy.com/gemini/v1'
+
+## NEW OPEN ROUTER
+
+  🚀 Usage Examples
+
+  Method 1 - Environment Variables:
+  export OPENROUTER_API_KEY="sk-or-v1-your-key"
+  export OPENROUTER_PROXY="true"
+
+  Method 2 - Direct Configuration:
+  export OPENROUTER_API_KEY="sk-or-v1-your-key"
+  export GEMINI_BASE_URL="https://openrouter.ai/api/v1"
+
+  Method 3 - External API Key:
+  Just paste your OpenRouter key into the external_api_key field and use OpenRouter model
+  names.
+
+  🎨 Free Image Model Access
+
+  Use model: google/gemini-2.5-flash-image-preview:free for completely free image analysis
+  through OpenRouter!
+
+  🔧 Files Modified
+
+  - env_utils.py - Enhanced base URL and API key detection
+  - gemini_node.py - Added OpenRouter client support and model names
+  - OPENROUTER_README.md - Complete documentation
+  - example.env - Configuration template
 
 ## Installation
 
@@ -101,3 +131,6 @@ If you find this tool useful, please consider supporting my work by:
 Thank You!
 
 <img src="https://count.getloli.com/get/@IFGemeini_comfy?theme=moebooru" alt=":IFGemini_comfy" /> 
+
+
+
