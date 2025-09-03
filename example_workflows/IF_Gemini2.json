@@ -1,0 +1,787 @@
+{
+  "id": "439802da-0992-4b17-b909-af1071db8df6",
+  "revision": 0,
+  "last_node_id": 54,
+  "last_link_id": 110,
+  "nodes": [
+    {
+      "id": 13,
+      "type": "SaveImage",
+      "pos": [
+        3243.518798828125,
+        365.65130615234375
+      ],
+      "size": [
+        315,
+        270
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 97
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": [
+        "gemini_"
+      ]
+    },
+    {
+      "id": 42,
+      "type": "ImageScaleToTotalPixels",
+      "pos": [
+        1550.509033203125,
+        828.8184204101562
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 82
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            81
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageScaleToTotalPixels"
+      },
+      "widgets_values": [
+        "nearest-exact",
+        1
+      ]
+    },
+    {
+      "id": 41,
+      "type": "ImageScaleToTotalPixels",
+      "pos": [
+        1205.7845458984375,
+        835.9465942382812
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 83
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            84
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageScaleToTotalPixels"
+      },
+      "widgets_values": [
+        "nearest-exact",
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "type": "ImageBatch",
+      "pos": [
+        1650.6236572265625,
+        1146.679443359375
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image1",
+          "type": "IMAGE",
+          "link": 84
+        },
+        {
+          "name": "image2",
+          "type": "IMAGE",
+          "link": 81
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            89
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageBatch",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 47,
+      "type": "LoadImage",
+      "pos": [
+        1880.5848388671875,
+        456.20068359375
+      ],
+      "size": [
+        315,
+        314.00006103515625
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            91
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": [
+        "580f0e7d35d897206c28f9167fa293c7.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 46,
+      "type": "ImageScaleToTotalPixels",
+      "pos": [
+        1902.3572998046875,
+        828.2314453125
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 91
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            92
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageScaleToTotalPixels"
+      },
+      "widgets_values": [
+        "nearest-exact",
+        1
+      ]
+    },
+    {
+      "id": 51,
+      "type": "PreviewAny",
+      "pos": [
+        2252.999755859375,
+        1288.3985595703125
+      ],
+      "size": [
+        418.6957702636719,
+        197.78778076171875
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 109
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 11,
+      "type": "LoadImage",
+      "pos": [
+        1528.7364501953125,
+        456.7873840332031
+      ],
+      "size": [
+        315,
+        314.00006103515625
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            13,
+            82
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": [
+        "Floral Bustier Midriff Waist Shaper Dress.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 45,
+      "type": "ImageBatch",
+      "pos": [
+        1644.2593994140625,
+        1044.077880859375
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image1",
+          "type": "IMAGE",
+          "link": 89
+        },
+        {
+          "name": "image2",
+          "type": "IMAGE",
+          "link": 92
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            96
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageBatch",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 50,
+      "type": "LoadImageOutput",
+      "pos": [
+        1204.553466796875,
+        1092.46337890625
+      ],
+      "size": [
+        274.080078125,
+        362.00006103515625
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImageOutput"
+      },
+      "widgets_values": [
+        "ComfyUI_00564_.png [output]",
+        true,
+        "refresh",
+        "image"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoadImage",
+      "pos": [
+        1186.467529296875,
+        457.957275390625
+      ],
+      "size": [
+        315,
+        314
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            83
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": [
+        "1cd7910b477e1e4f1022b34f41f0e48c.jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 39,
+      "type": "PreviewAny",
+      "pos": [
+        2783.1220703125,
+        356.94708251953125
+      ],
+      "size": [
+        423.6920166015625,
+        261.448486328125
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 98
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 6,
+      "type": "PreviewImage",
+      "pos": [
+        2727.62890625,
+        708.2498779296875
+      ],
+      "size": [
+        898.0060424804688,
+        802.2527465820312
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 99
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.26"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 48,
+      "type": "IFTaskPromptManager",
+      "pos": [
+        1896.580322265625,
+        1023.927490234375
+      ],
+      "size": [
+        327.74737548828125,
+        184
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            108,
+            110
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IFTaskPromptManager"
+      },
+      "widgets_values": [
+        "VII.3 Illustration to Commercialized 1/7-Scale Figurine",
+        "Analyze the provided images and follow the task instructions above. Place text \"IMPACTFRAMES\" on the box",
+        "after",
+        "\n\n",
+        "\n\n"
+      ]
+    },
+    {
+      "id": 54,
+      "type": "StringConcatenate",
+      "pos": [
+        1808.43408203125,
+        1267.1873779296875
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "string_a",
+          "type": "STRING",
+          "widget": {
+            "name": "string_a"
+          },
+          "link": 108
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            109
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "StringConcatenate"
+      },
+      "widgets_values": [
+        "",
+        "Print \"IMPACTFRAMES\" on the box",
+        ""
+      ]
+    },
+    {
+      "id": 49,
+      "type": "IFGeminiNode",
+      "pos": [
+        2258.181640625,
+        524.336669921875
+      ],
+      "size": [
+        400,
+        702
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 96
+        },
+        {
+          "name": "video",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 110
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "links": [
+            98
+          ]
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            97,
+            99
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IFGeminiNode"
+      },
+      "widgets_values": [
+        "Combine maintaining the pose of the subject, the woman from image_1, one and place the logo on image_2 on heswimsuitit over the chest are, making sure it is perfectly wrapped as the underlying ssurfacee and use the background using the reference from image_3 make sure the background and the reference is perfectly integrated as the perspective might need resizing and relight the subject to fit on the background environment \n",
+        "generate_images",
+        "google/gemini-2.5-flash-image-preview",
+        0.8,
+        1272437061,
+        "randomize",
+        true,
+        1,
+        "none",
+        "openrouter",
+        "",
+        false,
+        false,
+        false,
+        2,
+        8192,
+        1,
+        1
+      ]
+    }
+  ],
+  "links": [
+    [
+      81,
+      42,
+      0,
+      3,
+      1,
+      "IMAGE"
+    ],
+    [
+      82,
+      11,
+      0,
+      42,
+      0,
+      "IMAGE"
+    ],
+    [
+      83,
+      4,
+      0,
+      41,
+      0,
+      "IMAGE"
+    ],
+    [
+      84,
+      41,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      89,
+      3,
+      0,
+      45,
+      0,
+      "IMAGE"
+    ],
+    [
+      91,
+      47,
+      0,
+      46,
+      0,
+      "IMAGE"
+    ],
+    [
+      92,
+      46,
+      0,
+      45,
+      1,
+      "IMAGE"
+    ],
+    [
+      96,
+      45,
+      0,
+      49,
+      0,
+      "IMAGE"
+    ],
+    [
+      97,
+      49,
+      1,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      98,
+      49,
+      0,
+      39,
+      0,
+      "*"
+    ],
+    [
+      99,
+      49,
+      1,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      108,
+      48,
+      0,
+      54,
+      0,
+      "STRING"
+    ],
+    [
+      109,
+      54,
+      0,
+      51,
+      0,
+      "*"
+    ],
+    [
+      110,
+      48,
+      0,
+      49,
+      3,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "MULTI_BANANA_TASKS",
+      "bounding": [
+        1176.467529296875,
+        241.34707641601562,
+        2459.16748046875,
+        1279.1556396484375
+      ],
+      "color": "#444",
+      "font_size": 54,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.7972024500000336,
+      "offset": [
+        -1259.5752971038385,
+        -354.29571940086333
+      ]
+    },
+    "frontendVersion": "1.25.11",
+    "ue_links": [],
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

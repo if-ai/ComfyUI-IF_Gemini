@@ -15,9 +15,16 @@ try:
     async def check_api_key(request):
         """Check if a Gemini API key is valid using the check_gemini_api_key function"""
         try:
-            # Get key from request
+            # Get key and provider from request
             data = await request.json()
-            api_key = data.get("api_key", "").strip()
+            raw_key = data.get("api_key", "")
+            # Coerce to string defensively (avoid .strip on non-str)
+            if isinstance(raw_key, str):
+                api_key = raw_key.strip()
+            else:
+                api_key = ""
+            raw_provider = data.get("api_provider", "auto")
+            api_provider = raw_provider if isinstance(raw_provider, str) and raw_provider in ["auto","gemini","openrouter"] else "auto"
             
             # Priority check
             if not api_key:
@@ -75,7 +82,8 @@ try:
             # Use the check_gemini_api_key function from gemini_node.py
             from .gemini_node import check_gemini_api_key
             
-            is_valid, message = check_gemini_api_key(api_key)
+            # Pass the api_provider to the validation function
+            is_valid, message = check_gemini_api_key(api_key, api_provider)
             
             if is_valid:
                 return web.json_response({
@@ -173,13 +181,14 @@ try:
                 
                 # Get models from the API using Client approach
                 from google import genai
-                from .gemini_node import create_gemini_client
+                from .gemini_node import create_appropriate_client, UniversalClient
                 
                 # Use client with configurable base URL
-                client = create_gemini_client(api_key)
+                raw_client, client_type = create_appropriate_client(api_key)
+                client = UniversalClient(raw_client, client_type)
                 
                 # List available models - use the correct method for newer SDK versions
-                models = client.models.list()
+                models = client.models().list()
                 gemini_models = []
                 
                 # Filter for Gemini models only
@@ -246,9 +255,13 @@ try:
             # Get data from request
             try:
                 data = await request.json()
-                external_key = data.get("external_api_key", "").strip()
+                raw_external = data.get("external_api_key", "")
+                external_key = raw_external.strip() if isinstance(raw_external, str) else ""
+                raw_provider = data.get("api_provider", None)
+                api_provider = raw_provider if isinstance(raw_provider, str) else None
             except:
                 external_key = ""
+                api_provider = None
             
             # API key priority
             api_key = None
@@ -318,7 +331,7 @@ try:
             from .gemini_node import get_available_models
             
             # Get models using the api key
-            gemini_models = get_available_models(api_key)
+            gemini_models = get_available_models(api_key, api_provider)
             
             return web.json_response(gemini_models)
             

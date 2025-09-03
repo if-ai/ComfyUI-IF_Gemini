@@ -69,6 +69,7 @@ class IFTaskPromptManager:
                     "dynamicPrompts": False
                 }),
                 "append_mode": (["before", "after", "replace"], {"default": "after"}),
+                "raw_prompt_only": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "separator": ("STRING", {"default": "\n\n", "multiline": False}),
@@ -85,7 +86,8 @@ class IFTaskPromptManager:
         task: str, 
         custom_instruction: str = "", 
         append_mode: str = "after",
-        separator: str = "\n\n"
+        separator: str = "\n\n",
+        raw_prompt_only: bool = False,
     ) -> Tuple[str]:
         """
         Generate a prompt by combining task system prompt with custom instructions.
@@ -110,6 +112,11 @@ class IFTaskPromptManager:
         # Get the system prompt from the task
         system_prompt = task_data.get("prompt", "")
         
+        # If only raw prompt is requested, return it directly
+        if raw_prompt_only:
+            logger.info(f"Raw prompt only mode active for '{task}'")
+            return (system_prompt,)
+
         # Handle empty custom instruction
         if not custom_instruction or custom_instruction.strip() == "":
             logger.info(f"Using task prompt only for '{task}'")

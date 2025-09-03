@@ -3,15 +3,15 @@ import logging
 from pathlib import Path
 import sys
 
-# Set up logging with more detailed output
+# Set up logging with reasonable verbosity
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Set to DEBUG for more verbose output
+logger.setLevel(logging.INFO)  # Reduced from DEBUG to INFO
 
 # Add a console handler if not already present
 if not logger.handlers:
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    console_handler.setLevel(logging.INFO)  # Reduced verbosity
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
@@ -48,8 +48,6 @@ def get_api_key(env_var_name, service_name):
     Returns:
         API key string or empty string if not found
     """
-    logger.debug(f"Looking for {service_name} API key ({env_var_name})")
-    
     # First check if the key is already in environment variables
     api_key = os.environ.get(env_var_name, "")
     
@@ -67,7 +65,6 @@ def get_api_key(env_var_name, service_name):
     
     for config_file in shell_config_files:
         if os.path.exists(config_file):
-            logger.debug(f"Checking {config_file} for API key...")
             try:
                 with open(config_file, 'r') as f:
                     content = f.read()
@@ -90,7 +87,6 @@ def get_api_key(env_var_name, service_name):
     
     # If dotenv is not available, we can't load from .env files
     if not DOTENV_AVAILABLE:
-        logger.debug("dotenv not available, skipping .env file checks")
         return ""
     
     # List only essential .env file locations to check
@@ -113,15 +109,13 @@ def get_api_key(env_var_name, service_name):
     except Exception as e:
         logger.warning(f"Error determining ComfyUI root directory: {e}")
     
-    # Debug: Print all environment variables (keys only for security)
-    logger.debug("Current environment variables: " + ", ".join(os.environ.keys()))
+    # Note: Environment variables are available for debugging if needed
     
     # Try each location - if .env files don't exist, that's fine
     env_files_found = False
     for env_path, location_name in possible_locations:
         if env_path.exists():
             env_files_found = True
-            logger.debug(f"Found .env file at {env_path} ({location_name})")
             try:
                 dotenv.load_dotenv(env_path)
                 # Check again after loading
@@ -133,26 +127,38 @@ def get_api_key(env_var_name, service_name):
                 logger.error(f"Error loading .env from {location_name}: {str(e)}")
     
     # If we get here, no API key was found
-    if env_files_found:
-        logger.warning(f"No {service_name} API key found in any .env file.")
-    else:
-        logger.debug(f"No .env files found in expected locations. This is okay if you're using external API key or system environment variables.")
+    if not env_files_found:
+        logger.info(f"No .env files found. Using system environment or external API key for {service_name}.")
     return ""
 
 def get_base_url():
     """
     Get custom base URL for Gemini API from environment variables
     
+    Supports both generic GEMINI_BASE_URL and OpenRouter-specific configuration.
+    For OpenRouter, use OPENROUTER_API_KEY and optionally set GEMINI_BASE_URL
+    to "https://openrouter.ai/api/v1" or set OPENROUTER_PROXY=true.
+    
     Returns:
         Base URL string or None if not configured
     """
+    # Check for explicit base URL first
     base_url = os.environ.get("GEMINI_BASE_URL", "")
     
     if base_url:
         logger.info(f"Using custom Gemini base URL: {base_url}")
         return base_url
     
-    # Check shell config files for base URL
+    # Check if OpenRouter proxy mode is enabled
+    openrouter_proxy = os.environ.get("OPENROUTER_PROXY", "").lower() in ("true", "1", "yes", "on")
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    
+    if openrouter_proxy or openrouter_key:
+        openrouter_base_url = "https://openrouter.ai/api/v1"
+        logger.info(f"Using OpenRouter proxy base URL: {openrouter_base_url}")
+        return openrouter_base_url
+    
+    # Check shell config files for base URL and OpenRouter settings
     home_dir = os.path.expanduser("~")
     shell_config_files = [
         os.path.join(home_dir, ".zshrc"),
@@ -166,6 +172,8 @@ def get_base_url():
                 with open(config_file, 'r') as f:
                     content = f.read()
                     import re
+                    
+                    # Check for explicit base URL first
                     patterns = [
                         r'export\s+GEMINI_BASE_URL=[\'\"]?([^\s\'\"]+)[\'\"]?',
                         r'GEMINI_BASE_URL=[\'\"]?([^\s\'\"]+)[\'\"]?'
@@ -177,6 +185,27 @@ def get_base_url():
                             logger.info(f"Found custom Gemini base URL in {os.path.basename(config_file)}: {base_url}")
                             os.environ["GEMINI_BASE_URL"] = base_url
                             return base_url
+                    
+                    # Check for OpenRouter configuration
+                    openrouter_patterns = [
+                        r'export\s+OPENROUTER_PROXY=[\'\"]?(true|1|yes|on)[\'\"]?',
+                        r'OPENROUTER_PROXY=[\'\"]?(true|1|yes|on)[\'\"]?',
+                        r'export\s+OPENROUTER_API_KEY=[\'\"]?([^\s\'\"]+)[\'\"]?',
+                        r'OPENROUTER_API_KEY=[\'\"]?([^\s\'\"]+)[\'\"]?'
+                    ]
+                    for pattern in openrouter_patterns:
+                        matches = re.findall(pattern, content)
+                        if matches:
+                            if "PROXY" in pattern:
+                                openrouter_base_url = "https://openrouter.ai/api/v1"
+                                logger.info(f"Found OpenRouter proxy enabled in {os.path.basename(config_file)}")
+                                os.environ["OPENROUTER_PROXY"] = "true"
+                                return openrouter_base_url
+                            else:  # OPENROUTER_API_KEY found
+                                openrouter_base_url = "https://openrouter.ai/api/v1"
+                                logger.info(f"Found OpenRouter API key in {os.path.basename(config_file)}, using OpenRouter proxy")
+                                os.environ["OPENROUTER_API_KEY"] = matches[0]
+                                return openrouter_base_url
             except Exception as e:
                 logger.error(f"Error reading {config_file}: {str(e)}")
     
@@ -205,13 +234,78 @@ def get_base_url():
             if env_path.exists():
                 try:
                     dotenv.load_dotenv(env_path)
+                    
+                    # Check for explicit base URL first
                     base_url = os.environ.get("GEMINI_BASE_URL", "")
                     if base_url:
                         logger.info(f"Loaded custom Gemini base URL from .env file in {location_name}: {base_url}")
                         return base_url
+                    
+                    # Check for OpenRouter configuration
+                    openrouter_proxy = os.environ.get("OPENROUTER_PROXY", "").lower() in ("true", "1", "yes", "on")
+                    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+                    
+                    if openrouter_proxy or openrouter_key:
+                        openrouter_base_url = "https://openrouter.ai/api/v1"
+                        logger.info(f"Loaded OpenRouter configuration from .env file in {location_name}")
+                        return openrouter_base_url
+                        
                 except Exception as e:
                     logger.error(f"Error loading .env from {location_name}: {str(e)}")
     
-    # No custom base URL configured
-    logger.debug("No custom Gemini base URL configured, will use default")
+    # No custom base URL configured - using default Google API endpoint
     return None
+
+def get_openrouter_api_key():
+    """
+    Get OpenRouter API key from environment variables
+    
+    Returns:
+        OpenRouter API key string or empty string if not found
+    """
+    return get_api_key("OPENROUTER_API_KEY", "OpenRouter")
+
+def get_effective_api_key():
+    """
+    Get the effective API key to use based on configuration
+    
+    Returns priority:
+    1. OpenRouter API key if OpenRouter base URL is configured
+    2. Regular Gemini API key otherwise
+    
+    Returns:
+        tuple: (api_key, source_type) where source_type is "openrouter" or "gemini"
+    """
+    base_url = get_base_url()
+    
+    # Check for OpenRouter key first regardless of base URL
+    openrouter_key = get_openrouter_api_key()
+    gemini_key = get_api_key("GEMINI_API_KEY", "Gemini")
+    
+    # If using OpenRouter base URL, prefer OpenRouter API key
+    if base_url and "openrouter.ai" in base_url:
+        if openrouter_key:
+            logger.info("Using OpenRouter API key with OpenRouter base URL")
+            return openrouter_key, "openrouter"
+        elif gemini_key:
+            logger.warning("Using Gemini API key with OpenRouter base URL (this may not work)")
+            return gemini_key, "gemini"
+    else:
+        # No custom base URL or non-OpenRouter base URL
+        # Prefer Gemini key for standard endpoint
+        if gemini_key:
+            logger.info("Using Gemini API key with standard endpoint")
+            return gemini_key, "gemini"
+        elif openrouter_key:
+            logger.info("Using OpenRouter API key with standard endpoint (may not work without OpenRouter URL)")
+            return openrouter_key, "openrouter"
+    
+    # Log what keys were found for debugging
+    if not openrouter_key and not gemini_key:
+        logger.warning("No API keys found in environment (OPENROUTER_API_KEY or GEMINI_API_KEY)")
+    elif not openrouter_key:
+        logger.info("GEMINI_API_KEY found but OPENROUTER_API_KEY missing")
+    elif not gemini_key:
+        logger.info("OPENROUTER_API_KEY found but GEMINI_API_KEY missing")
+    
+    return "", "none"

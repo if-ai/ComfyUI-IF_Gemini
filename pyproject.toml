@@ -13,6 +13,9 @@ dependencies = [
     "google-generativeai",
     "google-genai",
     
+    # OpenAI SDK for OpenRouter compatibility
+    "openai>=1.0.0",
+    
     # Utilities
     "python-dotenv",
     "requests>=2.31.0",

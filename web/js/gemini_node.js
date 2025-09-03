@@ -101,7 +101,9 @@ app.registerExtension({
                 // Add verify API key button
                 const verifyApiKeyBtn = this.addWidget("button", "Verify API Key", null, () => {
                     const externalApiKeyWidget = this.widgets.find(w => w.name === "external_api_key");
+                    const apiProviderWidget = this.widgets.find(w => w.name === "api_provider");
                     const apiKey = externalApiKeyWidget ? externalApiKeyWidget.value : "";
+                    const apiProvider = apiProviderWidget ? apiProviderWidget.value : "auto";
 
                     // Add UI feedback
                     const statusWidget = this.widgets.find(w => w.name === "api_key_status");
@@ -111,11 +113,14 @@ app.registerExtension({
                         this.addWidget("text", "api_key_status", "Checking API key...");
                     }
                     
-                    // Send request to verify API key
+                    // Send request to verify API key with provider
                     fetch("/gemini/check_api_key", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ api_key: apiKey })
+                        body: JSON.stringify({ 
+                            api_key: apiKey,
+                            api_provider: apiProvider
+                        })
                     })
                     .then(response => response.json())
                     .then(data => {
@@ -203,10 +208,12 @@ app.registerExtension({
                 const operationMode = operationModeWidget ? operationModeWidget.value : "analysis";
 
                 // Get models from the backend
+                const apiProviderWidget = this.widgets.find(w => w.name === "api_provider");
+                const apiProvider = apiProviderWidget ? apiProviderWidget.value : "auto";
                 fetch("/gemini/get_models", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ external_api_key: apiKey })
+                    body: JSON.stringify({ external_api_key: apiKey, api_provider: apiProvider })
                 })
                 .then(response => response.json())
                 .then(allModels => {
